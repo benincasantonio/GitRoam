@@ -1,5 +1,6 @@
 #include "git.h"
 
+#include "git_internal.h"
 #include "process.h"
 
 #include <errno.h>
@@ -10,7 +11,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static char *duplicate_string(const char *value)
+char *git_internal_string_copy(const char *value)
 {
     size_t length;
     char *copy;
@@ -44,7 +45,7 @@ static char *repository_display_path(const char *top, const char *common)
     if (length > 5 && strcmp(common + length - 5, "/.git") == 0) {
         return duplicate_range(common, length - 5);
     }
-    return duplicate_string(top);
+    return git_internal_string_copy(top);
 }
 
 static void trim_output(char *value)
@@ -61,21 +62,21 @@ static void trim_output(char *value)
     }
 }
 
-static void set_error(char **error, const char *message)
+void git_internal_set_error(char **error, const char *message)
 {
     if (error == NULL) {
         return;
     }
     free(*error);
-    *error = duplicate_string(message == NULL || message[0] == '\0' ?
+    *error = git_internal_string_copy(message == NULL || message[0] == '\0' ?
                               "Git command failed" : message);
     if (*error != NULL) {
         trim_output(*error);
     }
 }
 
-static int run_git(const git_repository *repository,
-                   const char *const arguments[], process_result *result)
+int git_internal_run(const git_repository *repository,
+                     const char *const arguments[], process_result *result)
 {
     const char *argv[32];
     size_t index = 0;
@@ -97,18 +98,18 @@ static int run_git(const git_repository *repository,
     return process_run(argv, result);
 }
 
-static int command_text(const git_repository *repository,
-                        const char *const arguments[], char **output,
-                        char **error)
+int git_internal_command_text(const git_repository *repository,
+                              const char *const arguments[], char **output,
+                              char **error)
 {
     process_result result;
 
-    if (run_git(repository, arguments, &result) != 0) {
-        set_error(error, strerror(errno));
+    if (git_internal_run(repository, arguments, &result) != 0) {
+        git_internal_set_error(error, strerror(errno));
         return -1;
     }
     if (result.exit_code != 0) {
-        set_error(error, result.stderr_data);
+        git_internal_set_error(error, result.stderr_data);
         process_result_destroy(&result);
         return -1;
     }
@@ -128,6 +129,27 @@ void git_repository_destroy(git_repository *repository)
     free(repository->common_dir);
     free(repository->name);
     memset(repository, 0, sizeof(*repository));
+}
+
+int git_repository_copy(git_repository *destination,
+                        const git_repository *source)
+{
+    git_repository copy = { 0 };
+
+    if (destination == NULL || source == NULL) {
+        return -1;
+    }
+    copy.path = git_internal_string_copy(source->path);
+    copy.common_dir = git_internal_string_copy(source->common_dir);
+    copy.name = git_internal_string_copy(source->name);
+    if ((source->path != NULL && copy.path == NULL) ||
+        (source->common_dir != NULL && copy.common_dir == NULL) ||
+        (source->name != NULL && copy.name == NULL)) {
+        git_repository_destroy(&copy);
+        return -1;
+    }
+    *destination = copy;
+    return 0;
 }
 
 void git_repository_list_destroy(git_repository_list *list)
@@ -167,18 +189,18 @@ int git_repository_open(const char *path, git_repository *repository,
     char *name_copy;
 
     if (path == NULL || repository == NULL) {
-        set_error(error, "Invalid repository path");
+        git_internal_set_error(error, "Invalid repository path");
         return -1;
     }
     probe.path = (char *)path;
-    if (command_text(&probe, metadata_arguments, &metadata, error) != 0) {
+    if (git_internal_command_text(&probe, metadata_arguments, &metadata, error) != 0) {
         return -1;
     }
     bare = metadata;
     separator = strchr(bare, '\n');
     if (separator == NULL) {
         free(metadata);
-        set_error(error, "Unexpected Git metadata output");
+        git_internal_set_error(error, "Unexpected Git metadata output");
         return -1;
     }
     *separator = '\0';
@@ -186,37 +208,37 @@ int git_repository_open(const char *path, git_repository *repository,
     separator = strchr(top, '\n');
     if (separator == NULL) {
         free(metadata);
-        set_error(error, "Unexpected Git metadata output");
+        git_internal_set_error(error, "Unexpected Git metadata output");
         return -1;
     }
     *separator = '\0';
     common = separator + 1;
     if (common[0] == '\0' || strchr(common, '\n') != NULL) {
         free(metadata);
-        set_error(error, "Unexpected Git metadata output");
+        git_internal_set_error(error, "Unexpected Git metadata output");
         return -1;
     }
     if (strcmp(bare, "true") == 0) {
         free(metadata);
-        set_error(error, "Bare repositories are not supported");
+        git_internal_set_error(error, "Bare repositories are not supported");
         return -1;
     }
     temporary.path = repository_display_path(top, common);
-    temporary.common_dir = duplicate_string(common);
+    temporary.common_dir = git_internal_string_copy(common);
     free(metadata);
     if (temporary.path == NULL || temporary.common_dir == NULL) {
         git_repository_destroy(&temporary);
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
         return -1;
     }
-    name_copy = duplicate_string(temporary.path);
+    name_copy = git_internal_string_copy(temporary.path);
     if (name_copy != NULL) {
-        temporary.name = duplicate_string(basename(name_copy));
+        temporary.name = git_internal_string_copy(basename(name_copy));
         free(name_copy);
     }
     if (temporary.name == NULL) {
         git_repository_destroy(&temporary);
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
         return -1;
     }
     *repository = temporary;
@@ -424,12 +446,12 @@ int git_worktrees(const git_repository *repository, git_worktree_list *list,
     process_result result;
     int parse_result;
 
-    if (run_git(repository, arguments, &result) != 0) {
-        set_error(error, strerror(errno));
+    if (git_internal_run(repository, arguments, &result) != 0) {
+        git_internal_set_error(error, strerror(errno));
         return -1;
     }
     if (result.exit_code != 0) {
-        set_error(error, result.stderr_data);
+        git_internal_set_error(error, result.stderr_data);
         process_result_destroy(&result);
         return -1;
     }
@@ -437,7 +459,7 @@ int git_worktrees(const git_repository *repository, git_worktree_list *list,
                                        result.stdout_length, list);
     process_result_destroy(&result);
     if (parse_result != 0) {
-        set_error(error, "Could not parse git worktree output");
+        git_internal_set_error(error, "Could not parse git worktree output");
     }
     return parse_result;
 }
@@ -450,7 +472,7 @@ static bool ref_exists(const git_repository *repository, const char *ref)
     process_result result;
     bool exists = false;
 
-    if (run_git(repository, arguments, &result) == 0) {
+    if (git_internal_run(repository, arguments, &result) == 0) {
         exists = result.exit_code == 0;
         process_result_destroy(&result);
     }
@@ -489,15 +511,15 @@ int git_primary_branch(const git_repository *repository, char **branch,
     char *ref;
 
     if (repository == NULL || branch == NULL) {
-        set_error(error, "Invalid repository");
+        git_internal_set_error(error, "Invalid repository");
         return -1;
     }
-    if (command_text(repository, origin_arguments, &origin, NULL) == 0) {
+    if (git_internal_command_text(repository, origin_arguments, &origin, NULL) == 0) {
         char *separator = strchr(origin, '/');
-        *branch = duplicate_string(separator == NULL ? origin : separator + 1);
+        *branch = git_internal_string_copy(separator == NULL ? origin : separator + 1);
         free(origin);
         if (*branch == NULL) {
-            set_error(error, "Out of memory");
+            git_internal_set_error(error, "Out of memory");
             return -1;
         }
         return 0;
@@ -505,32 +527,33 @@ int git_primary_branch(const git_repository *repository, char **branch,
     ref = local_ref("main");
     if (ref != NULL && ref_exists(repository, ref)) {
         free(ref);
-        *branch = duplicate_string("main");
+        *branch = git_internal_string_copy("main");
         return *branch == NULL ? -1 : 0;
     }
     free(ref);
     ref = remote_ref("origin/main");
     if (ref != NULL && ref_exists(repository, ref)) {
         free(ref);
-        *branch = duplicate_string("main");
+        *branch = git_internal_string_copy("main");
         return *branch == NULL ? -1 : 0;
     }
     free(ref);
     ref = local_ref("master");
     if (ref != NULL && ref_exists(repository, ref)) {
         free(ref);
-        *branch = duplicate_string("master");
+        *branch = git_internal_string_copy("master");
         return *branch == NULL ? -1 : 0;
     }
     free(ref);
     ref = remote_ref("origin/master");
     if (ref != NULL && ref_exists(repository, ref)) {
         free(ref);
-        *branch = duplicate_string("master");
+        *branch = git_internal_string_copy("master");
         return *branch == NULL ? -1 : 0;
     }
     free(ref);
-    set_error(error, "No primary branch found (origin/HEAD, main, or master)");
+    git_internal_set_error(
+        error, "No primary branch found (origin/HEAD, main, or master)");
     return -1;
 }
 
@@ -549,10 +572,10 @@ char *git_default_worktree_path(const git_repository *repository,
         git_worktrees(repository, &list, error) != 0 || list.count == 0) {
         return NULL;
     }
-    parent_copy = duplicate_string(list.items[0].path);
-    safe_branch = duplicate_string(branch);
+    parent_copy = git_internal_string_copy(list.items[0].path);
+    safe_branch = git_internal_string_copy(branch);
     if (parent_copy == NULL || safe_branch == NULL) {
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
         goto done;
     }
     parent = dirname(parent_copy);
@@ -568,7 +591,7 @@ char *git_default_worktree_path(const git_repository *repository,
         (void)snprintf(result, length, "%s/%s-%s", parent, repository->name,
                        safe_branch);
     } else {
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
     }
 
 done:
@@ -592,7 +615,7 @@ static int matching_remote(const git_repository *repository,
 
     *count = 0;
     *match = NULL;
-    if (command_text(repository, arguments, &output, error) != 0) {
+    if (git_internal_command_text(repository, arguments, &output, error) != 0) {
         return -1;
     }
     for (line = strtok_r(output, "\n", &save);
@@ -606,11 +629,11 @@ static int matching_remote(const git_repository *repository,
         if (line_length > branch_length + 1 &&
             line[line_length - branch_length - 1] == '/' &&
             strcmp(line + line_length - branch_length, branch) == 0) {
-            char *copy = duplicate_string(line);
+            char *copy = git_internal_string_copy(line);
             if (copy == NULL) {
                 free(output);
                 free(*match);
-                set_error(error, "Out of memory");
+                git_internal_set_error(error, "Out of memory");
                 return -1;
             }
             free(*match);
@@ -647,7 +670,7 @@ static int primary_start_ref(const git_repository *repository, char **start,
     }
     free(primary);
     if (*start == NULL) {
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
         return -1;
     }
     return 0;
@@ -663,16 +686,16 @@ static char *resolve_destination(const git_repository *repository,
     size_t length;
 
     if (destination[0] == '/') {
-        return duplicate_string(destination);
+        return git_internal_string_copy(destination);
     }
     if (git_worktrees(repository, &list, error) != 0 || list.count == 0) {
         git_worktree_list_destroy(&list);
         return NULL;
     }
-    path_copy = duplicate_string(list.items[0].path);
+    path_copy = git_internal_string_copy(list.items[0].path);
     if (path_copy == NULL) {
         git_worktree_list_destroy(&list);
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
         return NULL;
     }
     parent = dirname(path_copy);
@@ -681,7 +704,7 @@ static char *resolve_destination(const git_repository *repository,
     if (resolved != NULL) {
         (void)snprintf(resolved, length, "%s/%s", parent, destination);
     } else {
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
     }
     free(path_copy);
     git_worktree_list_destroy(&list);
@@ -711,15 +734,15 @@ git_create_status git_create_worktree(const git_repository *repository,
         *resolved_path = NULL;
     }
     if (repository == NULL || branch == NULL || destination == NULL) {
-        set_error(error, "Invalid worktree request");
+        git_internal_set_error(error, "Invalid worktree request");
         return GIT_CREATE_FAILED;
     }
-    if (run_git(repository, validate_arguments, &result) != 0) {
-        set_error(error, strerror(errno));
+    if (git_internal_run(repository, validate_arguments, &result) != 0) {
+        git_internal_set_error(error, strerror(errno));
         return GIT_CREATE_FAILED;
     }
     if (result.exit_code != 0) {
-        set_error(error, result.stderr_data);
+        git_internal_set_error(error, result.stderr_data);
         process_result_destroy(&result);
         return GIT_CREATE_INVALID_BRANCH;
     }
@@ -731,7 +754,7 @@ git_create_status git_create_worktree(const git_repository *repository,
         if (list.items[index].branch != NULL &&
             strcmp(list.items[index].branch, branch) == 0) {
             if (resolved_path != NULL) {
-                *resolved_path = duplicate_string(list.items[index].path);
+                *resolved_path = git_internal_string_copy(list.items[index].path);
             }
             git_worktree_list_destroy(&list);
             return GIT_CREATE_EXISTING;
@@ -744,7 +767,7 @@ git_create_status git_create_worktree(const git_repository *repository,
     }
     ref = local_ref(branch);
     if (ref == NULL) {
-        set_error(error, "Out of memory");
+        git_internal_set_error(error, "Out of memory");
         free(destination_path);
         return GIT_CREATE_FAILED;
     }
@@ -764,7 +787,7 @@ git_create_status git_create_worktree(const git_repository *repository,
             free(ref);
             free(remote);
             free(destination_path);
-            set_error(error, "Branch exists on more than one remote");
+            git_internal_set_error(error, "Branch exists on more than one remote");
             return GIT_CREATE_AMBIGUOUS_REMOTE;
         }
         arguments[argument++] = "--track";
@@ -788,8 +811,8 @@ git_create_status git_create_worktree(const git_repository *repository,
         }
     }
     arguments[argument] = NULL;
-    if (run_git(repository, arguments, &result) != 0) {
-        set_error(error, strerror(errno));
+    if (git_internal_run(repository, arguments, &result) != 0) {
+        git_internal_set_error(error, strerror(errno));
         free(ref);
         free(remote);
         free(start);
@@ -797,7 +820,7 @@ git_create_status git_create_worktree(const git_repository *repository,
         return GIT_CREATE_FAILED;
     }
     if (result.exit_code != 0) {
-        set_error(error, result.stderr_data);
+        git_internal_set_error(error, result.stderr_data);
         process_result_destroy(&result);
         free(ref);
         free(remote);
@@ -809,9 +832,9 @@ git_create_status git_create_worktree(const git_repository *repository,
     if (resolved_path != NULL) {
         char absolute[PATH_MAX];
         if (realpath(destination_path, absolute) != NULL) {
-            *resolved_path = duplicate_string(absolute);
+            *resolved_path = git_internal_string_copy(absolute);
         } else {
-            *resolved_path = duplicate_string(destination_path);
+            *resolved_path = git_internal_string_copy(destination_path);
         }
     }
     free(ref);

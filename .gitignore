@@ -1,6 +1,7 @@
 /build/
 /gitroam
 /libtui.a
+/test-cleanup
 /test-git
 /test-tui
 /tui-demo

@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <time.h>
 
 typedef struct {
     char *path;
@@ -33,6 +34,32 @@ typedef struct {
 } git_worktree_list;
 
 typedef enum {
+    GIT_WORKTREE_CLEANUP_PRIMARY = 0,
+    GIT_WORKTREE_CLEANUP_LOCKED,
+    GIT_WORKTREE_CLEANUP_DIRTY,
+    GIT_WORKTREE_CLEANUP_STALE_METADATA,
+    GIT_WORKTREE_CLEANUP_MERGED,
+    GIT_WORKTREE_CLEANUP_UPSTREAM_GONE,
+    GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED,
+    GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED,
+    GIT_WORKTREE_CLEANUP_DETACHED_UNMERGED,
+    GIT_WORKTREE_CLEANUP_INSPECTION_FAILED
+} git_worktree_cleanup_state;
+
+typedef struct {
+    char *path;
+    char *branch;
+    char *upstream;
+    git_worktree_cleanup_state state;
+    time_t last_commit;
+} git_worktree_cleanup;
+
+typedef struct {
+    git_worktree_cleanup *items;
+    size_t count;
+} git_worktree_cleanup_list;
+
+typedef enum {
     GIT_CREATE_OK = 0,
     GIT_CREATE_EXISTING,
     GIT_CREATE_INVALID_BRANCH,
@@ -41,6 +68,8 @@ typedef enum {
 } git_create_status;
 
 void git_repository_destroy(git_repository *repository);
+int git_repository_copy(git_repository *destination,
+                        const git_repository *source);
 void git_repository_list_destroy(git_repository_list *list);
 int git_repository_open(const char *path, git_repository *repository,
                         char **error);
@@ -52,6 +81,13 @@ int git_worktrees(const git_repository *repository, git_worktree_list *list,
 int git_worktrees_parse(const char *data, size_t length,
                         git_worktree_list *list);
 void git_worktree_list_destroy(git_worktree_list *list);
+int git_worktree_cleanup_scan(const git_repository *repository,
+                              git_worktree_cleanup_list *list, char **error);
+void git_worktree_cleanup_list_destroy(git_worktree_cleanup_list *list);
+bool git_worktree_cleanup_is_removable(git_worktree_cleanup_state state);
+int git_worktree_remove_safe(const git_repository *repository,
+                             const char *path, char **error);
+int git_worktree_prune(const git_repository *repository, char **error);
 
 int git_primary_branch(const git_repository *repository, char **branch,
                        char **error);
