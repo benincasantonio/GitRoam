@@ -104,6 +104,31 @@ static int test_repository_dedup_index(void)
     return 0;
 }
 
+static int test_repository_copy(void)
+{
+    git_repository source = {
+        strdup("/tmp/source"),
+        strdup("/tmp/source/.git"),
+        strdup("source")
+    };
+    git_repository copy = { 0 };
+
+    CHECK(source.path != NULL && source.common_dir != NULL &&
+          source.name != NULL);
+    CHECK(git_repository_copy(&copy, &source) == 0);
+    CHECK(copy.path != source.path && copy.common_dir != source.common_dir &&
+          copy.name != source.name);
+    CHECK(strcmp(copy.path, source.path) == 0);
+    CHECK(strcmp(copy.common_dir, source.common_dir) == 0);
+    CHECK(strcmp(copy.name, source.name) == 0);
+    /* The copy must outlive the source independently. */
+    git_repository_destroy(&source);
+    CHECK(strcmp(copy.path, "/tmp/source") == 0);
+    git_repository_destroy(&copy);
+    CHECK(git_repository_copy(NULL, &copy) != 0);
+    return 0;
+}
+
 static int write_file(const char *path, const char *contents)
 {
     FILE *file = fopen(path, "w");
@@ -322,6 +347,7 @@ int main(void)
 {
     if (test_worktree_parser() != 0 ||
         test_repository_dedup_index() != 0 ||
+        test_repository_copy() != 0 ||
         integration_test() != 0) {
         return EXIT_FAILURE;
     }

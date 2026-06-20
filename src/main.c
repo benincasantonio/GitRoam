@@ -1,6 +1,8 @@
+#include "app_ui.h"
 #include "discovery.h"
 #include "git.h"
 #include "tui.h"
+#include "worktree_cleanup.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -38,23 +40,9 @@ typedef struct {
     const char *path;
 } shell_context;
 
-static tui_status take_widget(tui_screen *screen, tui_widget **widget);
-static void show_message(tui_app *app, const char *title,
-                         const char *message);
 static int load_repositories(gitroam_state *state, char **error);
 static tui_status build_repository_screen(tui_screen **out_screen,
                                           gitroam_state *state);
-
-static char *copy_string(const char *value)
-{
-    size_t length = strlen(value);
-    char *copy = malloc(length + 1);
-
-    if (copy != NULL) {
-        memcpy(copy, value, length + 1);
-    }
-    return copy;
-}
 
 static void repository_context_destroy(void *opaque)
 {
@@ -93,18 +81,6 @@ static repository_context *repository_context_create(gitroam_state *state,
     return context;
 }
 
-static bool menu_shortcuts(tui_app *app, tui_screen *screen,
-                           const tui_event *event, void *context)
-{
-    (void)screen;
-    (void)context;
-    if (event->type == TUI_EVENT_CHARACTER && event->character == 'q') {
-        tui_app_stop(app);
-        return true;
-    }
-    return false;
-}
-
 static bool repository_shortcuts(tui_app *app, tui_screen *screen,
                                  const tui_event *event, void *opaque)
 {
@@ -115,52 +91,21 @@ static bool repository_shortcuts(tui_app *app, tui_screen *screen,
     (void)screen;
     if (event->type == TUI_EVENT_CHARACTER && event->character == 'r') {
         if (load_repositories(state, &error) != 0) {
-            show_message(app, "Refresh failed",
-                         error == NULL ? "Could not scan repositories."
-                                       : error);
+            app_show_message(app, "Refresh failed",
+                             error == NULL ? "Could not scan repositories."
+                                           : error);
             free(error);
             return true;
         }
         if (build_repository_screen(&replacement, state) != TUI_OK ||
             tui_app_replace_screen(app, replacement) != TUI_OK) {
             tui_screen_destroy(replacement);
-            show_message(app, "Refresh failed",
-                         "Could not rebuild the repository list.");
+            app_show_message(app, "Refresh failed",
+                             "Could not rebuild the repository list.");
         }
         return true;
     }
-    return menu_shortcuts(app, screen, event, opaque);
-}
-
-static void close_message(tui_app *app, tui_widget *widget, bool accepted,
-                          void *context)
-{
-    (void)widget;
-    (void)accepted;
-    (void)context;
-    (void)tui_app_pop_screen(app);
-}
-
-static void show_message(tui_app *app, const char *title, const char *message)
-{
-    tui_screen *screen = NULL;
-    tui_widget *dialog = NULL;
-
-    if (tui_screen_create(&screen, title, NULL, NULL) != TUI_OK ||
-        tui_message_dialog_create(&dialog, message, close_message, NULL) !=
-            TUI_OK) {
-        tui_widget_destroy(dialog);
-        tui_screen_destroy(screen);
-        return;
-    }
-    if (take_widget(screen, &dialog) != TUI_OK) {
-        tui_widget_destroy(dialog);
-        tui_screen_destroy(screen);
-        return;
-    }
-    if (tui_app_push_screen(app, screen) != TUI_OK) {
-        tui_screen_destroy(screen);
-    }
+    return app_quit_shortcut(app, screen, event, opaque);
 }
 
 static int launch_shell(void *opaque)
@@ -208,41 +153,13 @@ static bool open_workspace(tui_app *app, const char *path)
 
     status = tui_app_suspend(app, launch_shell, &context, &result);
     if (status != TUI_OK) {
-        show_message(app, "Shell error", tui_status_string(status));
+        app_show_message(app, "Shell error", tui_status_string(status));
         return false;
     } else if (result < 0) {
-        show_message(app, "Shell error", strerror(errno));
+        app_show_message(app, "Shell error", strerror(errno));
         return false;
     }
     return true;
-}
-
-static tui_status add_status(tui_screen *screen, const char *text)
-{
-    tui_widget *status = NULL;
-    tui_status result = tui_status_bar_create(&status, text);
-
-    if (result == TUI_OK) {
-        result = tui_screen_add_widget(screen, status);
-    }
-    if (result != TUI_OK) {
-        tui_widget_destroy(status);
-    }
-    return result;
-}
-
-static tui_status take_widget(tui_screen *screen, tui_widget **widget)
-{
-    tui_status status;
-
-    if (screen == NULL || widget == NULL || *widget == NULL) {
-        return TUI_ERR_ARGUMENT;
-    }
-    status = tui_screen_add_widget(screen, *widget);
-    if (status == TUI_OK) {
-        *widget = NULL;
-    }
-    return status;
 }
 
 static void destination_submitted(tui_app *app, tui_widget *widget,
@@ -258,22 +175,23 @@ static void destination_submitted(tui_app *app, tui_widget *widget,
 
     (void)widget;
     if (value[0] == '\0') {
-        show_message(app, "Invalid destination",
-                     "The destination path cannot be empty.");
+        app_show_message(app, "Invalid destination",
+                         "The destination path cannot be empty.");
         return;
     }
     status = git_create_worktree(repository, context->branch, value, &path,
                                  &error);
     if (status != GIT_CREATE_OK && status != GIT_CREATE_EXISTING) {
-        show_message(app, "Could not create workspace",
-                     error == NULL ? "Git worktree creation failed." : error);
+        app_show_message(
+            app, "Could not create workspace",
+            error == NULL ? "Git worktree creation failed." : error);
         free(error);
         return;
     }
     free(error);
     if (path == NULL) {
-        show_message(app, "Could not open workspace",
-                     "Git did not return a workspace path.");
+        app_show_message(app, "Could not open workspace",
+                         "Git did not return a workspace path.");
         return;
     }
     pop_count = context->pop_after_open;
@@ -300,9 +218,9 @@ static void push_destination_input(tui_app *app, gitroam_state *state,
 
     destination = git_default_worktree_path(repo, branch, &error);
     if (destination == NULL) {
-        show_message(app, "Could not choose destination",
-                     error == NULL ? "Unable to determine the main worktree."
-                                   : error);
+        app_show_message(
+            app, "Could not choose destination",
+            error == NULL ? "Unable to determine the main worktree." : error);
         free(error);
         return;
     }
@@ -310,7 +228,7 @@ static void push_destination_input(tui_app *app, gitroam_state *state,
     if (context != NULL) {
         context->state = state;
         context->repository = repository;
-        context->branch = copy_string(branch);
+        context->branch = app_string_copy(branch);
         context->pop_after_open = pop_after_open;
     }
     if (context == NULL || context->branch == NULL ||
@@ -318,25 +236,28 @@ static void push_destination_input(tui_app *app, gitroam_state *state,
                           destination_context_destroy) != TUI_OK) {
         destination_context_destroy(context);
         free(destination);
-        show_message(app, "Out of memory", "Could not create the input.");
+        app_show_message(app, "Out of memory",
+                         "Could not create the input.");
         return;
     }
     context = NULL;
     if (tui_text_input_create(&input, "Workspace path", destination,
                               destination_submitted,
                               tui_screen_context(screen)) != TUI_OK ||
-        take_widget(screen, &input) != TUI_OK ||
-        add_status(screen, "Enter: create and open  Esc: back") != TUI_OK) {
+        app_screen_take_widget(screen, &input) != TUI_OK ||
+        app_screen_add_status(
+            screen, "Enter: create and open  Esc: back") != TUI_OK) {
         tui_widget_destroy(input);
         tui_screen_destroy(screen);
         free(destination);
-        show_message(app, "Out of memory", "Could not create the input.");
+        app_show_message(app, "Out of memory",
+                         "Could not create the input.");
         return;
     }
     free(destination);
     if (tui_app_push_screen(app, screen) != TUI_OK) {
         tui_screen_destroy(screen);
-        show_message(app, "Out of memory", "Could not open the input.");
+        app_show_message(app, "Out of memory", "Could not open the input.");
     }
 }
 
@@ -347,8 +268,8 @@ static void branch_submitted(tui_app *app, tui_widget *widget,
 
     (void)widget;
     if (value[0] == '\0') {
-        show_message(app, "Invalid branch",
-                     "The branch name cannot be empty.");
+        app_show_message(app, "Invalid branch",
+                         "The branch name cannot be empty.");
         return;
     }
     push_destination_input(app, context->state, context->repository, value, 2);
@@ -366,22 +287,25 @@ static void push_branch_input(tui_app *app, gitroam_state *state,
         tui_screen_create(&screen, "Create workspace", context,
                           repository_context_destroy) != TUI_OK) {
         free(context);
-        show_message(app, "Out of memory", "Could not create the input.");
+        app_show_message(app, "Out of memory",
+                         "Could not create the input.");
         return;
     }
     context = NULL;
     if (tui_text_input_create(&input, "Branch name", "", branch_submitted,
                               tui_screen_context(screen)) != TUI_OK ||
-        take_widget(screen, &input) != TUI_OK ||
-        add_status(screen, "Enter: continue  Esc: back") != TUI_OK) {
+        app_screen_take_widget(screen, &input) != TUI_OK ||
+        app_screen_add_status(screen, "Enter: continue  Esc: back") !=
+            TUI_OK) {
         tui_widget_destroy(input);
         tui_screen_destroy(screen);
-        show_message(app, "Out of memory", "Could not create the input.");
+        app_show_message(app, "Out of memory",
+                         "Could not create the input.");
         return;
     }
     if (tui_app_push_screen(app, screen) != TUI_OK) {
         tui_screen_destroy(screen);
-        show_message(app, "Out of memory", "Could not open the input.");
+        app_show_message(app, "Out of memory", "Could not open the input.");
     }
 }
 
@@ -401,8 +325,8 @@ static void worktree_selected(tui_app *app, tui_widget *widget,
 
     (void)widget;
     if (git_worktrees(repository, &list, &error) != 0) {
-        show_message(app, "Could not list workspaces",
-                     error == NULL ? "Git command failed." : error);
+        app_show_message(app, "Could not list workspaces",
+                         error == NULL ? "Git command failed." : error);
         free(error);
         return;
     }
@@ -462,7 +386,7 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
                        list.items[index].path, state_label);
         label_view[index] = labels[index];
     }
-    labels[list.count] = copy_string("Back");
+    labels[list.count] = app_string_copy("Back");
     label_view[list.count] = labels[list.count];
     if (labels[list.count] == NULL) {
         goto done;
@@ -473,13 +397,13 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
         goto done;
     }
     context = NULL;
-    tui_screen_set_event_handler(screen, menu_shortcuts, NULL);
+    tui_screen_set_event_handler(screen, app_quit_shortcut, NULL);
     if (tui_menu_create(&menu, label_view, list.count + 1,
                         worktree_selected, tui_screen_context(screen)) !=
             TUI_OK ||
-        take_widget(screen, &menu) != TUI_OK ||
-        add_status(screen,
-                   "Arrows: move  Enter: open  Esc: back  q: quit") !=
+        app_screen_take_widget(screen, &menu) != TUI_OK ||
+        app_screen_add_status(
+            screen, "Arrows: move  Enter: open  Esc: back  q: quit") !=
             TUI_OK) {
         goto done;
     }
@@ -506,13 +430,14 @@ static void push_worktree_screen(tui_app *app, gitroam_state *state,
     tui_screen *screen = NULL;
 
     if (build_worktree_screen(&screen, state, repository) != TUI_OK) {
-        show_message(app, "Could not list workspaces",
-                     "Git worktree listing failed.");
+        app_show_message(app, "Could not list workspaces",
+                         "Git worktree listing failed.");
         return;
     }
     if (tui_app_push_screen(app, screen) != TUI_OK) {
         tui_screen_destroy(screen);
-        show_message(app, "Out of memory", "Could not open the workspace list.");
+        app_show_message(app, "Out of memory",
+                         "Could not open the workspace list.");
     }
 }
 
@@ -527,14 +452,14 @@ static void navigate_primary(tui_app *app, gitroam_state *state,
     size_t index;
 
     if (git_primary_branch(repository, &primary, &error) != 0) {
-        show_message(app, "Primary branch",
-                     error == NULL ? "No primary branch found." : error);
+        app_show_message(app, "Primary branch",
+                         error == NULL ? "No primary branch found." : error);
         free(error);
         return;
     }
     if (git_worktrees(repository, &list, &error) != 0) {
-        show_message(app, "Could not list workspaces",
-                     error == NULL ? "Git command failed." : error);
+        app_show_message(app, "Could not list workspaces",
+                         error == NULL ? "Git command failed." : error);
         free(error);
         free(primary);
         return;
@@ -569,6 +494,10 @@ static void repository_action_selected(tui_app *app, tui_widget *widget,
     case 2:
         push_branch_input(app, context->state, context->repository);
         break;
+    case 3:
+        worktree_cleanup_open(
+            app, &context->state->repositories.items[context->repository]);
+        break;
     default:
         (void)tui_app_pop_screen(app);
         break;
@@ -582,6 +511,7 @@ static void push_repository_actions(tui_app *app, gitroam_state *state,
         "Navigate to primary branch",
         "Select workspace",
         "Create workspace",
+        "Clean workspaces",
         "Back"
     };
     repository_context *context =
@@ -591,7 +521,8 @@ static void push_repository_actions(tui_app *app, gitroam_state *state,
     char title[256];
 
     if (context == NULL) {
-        show_message(app, "Out of memory", "Could not open repository actions.");
+        app_show_message(app, "Out of memory",
+                         "Could not open repository actions.");
         return;
     }
     (void)snprintf(title, sizeof(title), "%s actions",
@@ -599,27 +530,30 @@ static void push_repository_actions(tui_app *app, gitroam_state *state,
     if (tui_screen_create(&screen, title, context,
                           repository_context_destroy) != TUI_OK) {
         free(context);
-        show_message(app, "Out of memory", "Could not open repository actions.");
+        app_show_message(app, "Out of memory",
+                         "Could not open repository actions.");
         return;
     }
     context = NULL;
-    tui_screen_set_event_handler(screen, menu_shortcuts, NULL);
+    tui_screen_set_event_handler(screen, app_quit_shortcut, NULL);
     if (tui_action_dialog_create(&dialog,
                                  state->repositories.items[repository].path,
-                                 actions, 4, repository_action_selected,
+                                 actions, 5, repository_action_selected,
                                  tui_screen_context(screen)) != TUI_OK ||
-        take_widget(screen, &dialog) != TUI_OK ||
-        add_status(screen,
-                   "Arrows: move  Enter: select  Esc: back  q: quit") !=
+        app_screen_take_widget(screen, &dialog) != TUI_OK ||
+        app_screen_add_status(
+            screen, "Arrows: move  Enter: select  Esc: back  q: quit") !=
             TUI_OK) {
         tui_widget_destroy(dialog);
         tui_screen_destroy(screen);
-        show_message(app, "Out of memory", "Could not open repository actions.");
+        app_show_message(app, "Out of memory",
+                         "Could not open repository actions.");
         return;
     }
     if (tui_app_push_screen(app, screen) != TUI_OK) {
         tui_screen_destroy(screen);
-        show_message(app, "Out of memory", "Could not open repository actions.");
+        app_show_message(app, "Out of memory",
+                         "Could not open repository actions.");
     }
 }
 
@@ -661,7 +595,7 @@ static tui_status build_repository_screen(tui_screen **out_screen,
         if (tui_message_dialog_create(&dialog,
                 "No Git repositories were found beneath the scan root.",
                 NULL, NULL) != TUI_OK ||
-            take_widget(screen, &dialog) != TUI_OK) {
+            app_screen_take_widget(screen, &dialog) != TUI_OK) {
             goto done;
         }
     } else {
@@ -684,12 +618,13 @@ static tui_status build_repository_screen(tui_screen **out_screen,
         }
         if (tui_menu_create(&menu, label_view, state->repositories.count,
                             repository_selected, state) != TUI_OK ||
-            take_widget(screen, &menu) != TUI_OK) {
+            app_screen_take_widget(screen, &menu) != TUI_OK) {
             goto done;
         }
     }
-    if (add_status(screen,
-                   "Arrows: move  Enter: actions  r: refresh  Esc/q: quit") !=
+    if (app_screen_add_status(
+            screen,
+            "Arrows: move  Enter: actions  r: refresh  Esc/q: quit") !=
             TUI_OK) {
         goto done;
     }
@@ -863,7 +798,7 @@ int main(int argc, char **argv)
         }
         root = current;
     }
-    state.root = copy_string(root);
+    state.root = app_string_copy(root);
     if (state.root == NULL || load_repositories(&state, &error) != 0) {
         fprintf(stderr, "gitroam: %s\n",
                 error == NULL ? "could not scan repositories" : error);
