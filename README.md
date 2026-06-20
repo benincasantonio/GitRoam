@@ -142,3 +142,8 @@ cc -Iinclude application.c libtui.a -lncurses
 See [examples/tui_demo.c](examples/tui_demo.c) for a complete example. The
 backend interface in `libtui/tui_backend.h` permits injecting a fake terminal
 for deterministic tests.
+
+## License
+
+GitRoam is released under the BSD 3-Clause License. See [LICENSE](LICENSE) for
+the full text.
