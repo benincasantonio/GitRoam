@@ -70,8 +70,8 @@ static const char *state_label(git_worktree_cleanup_state state)
         return "clean: upstream gone";
     case GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED:
         return "clean: unmerged";
-    case GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED:
-        return "protected: unpushed, no upstream";
+    case GIT_WORKTREE_CLEANUP_UNPUSHED:
+        return "protected: unpushed commits";
     case GIT_WORKTREE_CLEANUP_DETACHED_UNMERGED:
         return "protected: detached, unmerged";
     case GIT_WORKTREE_CLEANUP_INSPECTION_FAILED:
@@ -95,8 +95,8 @@ static const char *protected_message(git_worktree_cleanup_state state)
         return "This detached worktree contains an unmerged commit.";
     case GIT_WORKTREE_CLEANUP_INSPECTION_FAILED:
         return "GitRoam could not inspect this worktree safely.";
-    case GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED:
-        return "This branch has unpushed commits and no upstream remote.";
+    case GIT_WORKTREE_CLEANUP_UNPUSHED:
+        return "This branch has commits that have not been pushed upstream.";
     case GIT_WORKTREE_CLEANUP_MERGED:
     case GIT_WORKTREE_CLEANUP_UPSTREAM_GONE:
     case GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED:
