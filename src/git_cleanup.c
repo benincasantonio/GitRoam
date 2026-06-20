@@ -14,6 +14,7 @@ typedef struct {
     char *upstream;
     time_t last_commit;
     bool merged;
+    bool has_unpushed_commits;
 } branch_record;
 
 typedef struct {
@@ -189,7 +190,8 @@ static int load_branches(const git_repository *repository,
 {
     static const char *arguments[] = {
         "for-each-ref",
-        "--format=%(refname)%09%(upstream)%09%(committerdate:unix)",
+        "--format=%(refname)%09%(upstream)%09%(upstream:trackshort)%09"
+        "%(committerdate:unix)",
         "refs/heads",
         NULL
     };
@@ -214,6 +216,7 @@ static int load_branches(const git_repository *repository,
         branch_record *record = &snapshot->branches[index++];
         char *first_tab;
         char *second_tab;
+        char *third_tab;
 
         next = strchr(line, '\n');
         if (next != NULL) {
@@ -221,7 +224,8 @@ static int load_branches(const git_repository *repository,
         }
         first_tab = strchr(line, '\t');
         second_tab = first_tab == NULL ? NULL : strchr(first_tab + 1, '\t');
-        if (first_tab == NULL || second_tab == NULL) {
+        third_tab = second_tab == NULL ? NULL : strchr(second_tab + 1, '\t');
+        if (first_tab == NULL || second_tab == NULL || third_tab == NULL) {
             free(output);
             git_internal_set_error(error,
                                    "Unexpected Git branch metadata");
@@ -229,17 +233,20 @@ static int load_branches(const git_repository *repository,
         }
         *first_tab = '\0';
         *second_tab = '\0';
+        *third_tab = '\0';
         record->ref = git_internal_string_copy(line);
         if (first_tab[1] != '\0') {
             record->upstream = git_internal_string_copy(first_tab + 1);
         }
+        record->has_unpushed_commits =
+            strchr(second_tab + 1, '>') != NULL;
         if (record->ref == NULL ||
             (first_tab[1] != '\0' && record->upstream == NULL)) {
             free(output);
             git_internal_set_error(error, "Out of memory");
             return -1;
         }
-        if (parse_timestamp(second_tab + 1, &record->last_commit) != 0) {
+        if (parse_timestamp(third_tab + 1, &record->last_commit) != 0) {
             free(output);
             git_internal_set_error(error,
                                    "Unexpected Git branch metadata");
@@ -470,7 +477,7 @@ static void inspect_worktree(const git_repository *repository,
         goto inspection_failed;
     }
     if (branch->upstream == NULL) {
-        item->state = GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED;
+        item->state = GIT_WORKTREE_CLEANUP_UNPUSHED;
         return;
     }
     item->upstream = git_internal_string_copy(branch->upstream);
@@ -479,6 +486,10 @@ static void inspect_worktree(const git_repository *repository,
     }
     if (!snapshot_has_ref(snapshot, branch->upstream)) {
         item->state = GIT_WORKTREE_CLEANUP_UPSTREAM_GONE;
+        return;
+    }
+    if (branch->has_unpushed_commits) {
+        item->state = GIT_WORKTREE_CLEANUP_UNPUSHED;
         return;
     }
     item->state = GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED;
@@ -570,8 +581,8 @@ static const char *blocked_removal_message(
         return "The worktree has modified or untracked files";
     case GIT_WORKTREE_CLEANUP_STALE_METADATA:
         return "Use worktree pruning for stale metadata";
-    case GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED:
-        return "The branch has unpushed commits and no upstream";
+    case GIT_WORKTREE_CLEANUP_UNPUSHED:
+        return "The branch has unpushed commits";
     case GIT_WORKTREE_CLEANUP_DETACHED_UNMERGED:
         return "The detached worktree contains an unmerged commit";
     case GIT_WORKTREE_CLEANUP_INSPECTION_FAILED:

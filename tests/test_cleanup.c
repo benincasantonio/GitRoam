@@ -26,6 +26,7 @@ typedef struct {
     char merged_path[PATH_MAX];
     char unmerged_path[PATH_MAX];
     char tracked_path[PATH_MAX];
+    char ahead_path[PATH_MAX];
     char dirty_path[PATH_MAX];
     char locked_path[PATH_MAX];
     char detached_path[PATH_MAX];
@@ -123,6 +124,8 @@ static int fixture_init(cleanup_fixture *fixture)
     CHECK(fixture_path(fixture->tracked_path,
                        sizeof(fixture->tracked_path), fixture->root,
                        "tracked workspace") == 0);
+    CHECK(fixture_path(fixture->ahead_path, sizeof(fixture->ahead_path),
+                       fixture->root, "ahead workspace") == 0);
     CHECK(fixture_path(fixture->dirty_path, sizeof(fixture->dirty_path),
                        fixture->root, "dirty workspace") == 0);
     CHECK(fixture_path(fixture->locked_path, sizeof(fixture->locked_path),
@@ -266,6 +269,32 @@ static int create_tracked_worktree(cleanup_fixture *fixture)
     return 0;
 }
 
+static int create_ahead_worktree(cleanup_fixture *fixture)
+{
+    char file_path[PATH_MAX];
+    const char *push[] = {
+        "git", "-C", fixture->ahead_path, "push", "-u", "origin",
+        "ahead-feature", NULL
+    };
+    const char *add[] = {
+        "git", "-C", fixture->ahead_path, "add", "local-only.txt", NULL
+    };
+    const char *commit[] = {
+        "git", "-C", fixture->ahead_path, "commit", "-m",
+        "local-only commit", NULL
+    };
+
+    CHECK(commit_worktree(fixture, "ahead-feature", fixture->ahead_path,
+                          "ahead.txt") == 0);
+    CHECK(run_ok(push) == 0);
+    CHECK(fixture_path(file_path, sizeof(file_path), fixture->ahead_path,
+                       "local-only.txt") == 0);
+    CHECK(write_file(file_path, "not pushed\n") == 0);
+    CHECK(run_ok(add) == 0);
+    CHECK(run_ok(commit) == 0);
+    return 0;
+}
+
 static int create_invalid_worktrees(cleanup_fixture *fixture)
 {
     char git_file[PATH_MAX];
@@ -322,8 +351,9 @@ static int verify_classifications(cleanup_fixture *fixture)
     CHECK_STATE("main", GIT_WORKTREE_CLEANUP_PRIMARY);
     CHECK_STATE("merged-feature", GIT_WORKTREE_CLEANUP_MERGED);
     CHECK(item->last_commit > (time_t)0);
-    CHECK_STATE("unmerged-feature", GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED);
+    CHECK_STATE("unmerged-feature", GIT_WORKTREE_CLEANUP_UNPUSHED);
     CHECK_STATE("tracked-feature", GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED);
+    CHECK_STATE("ahead-feature", GIT_WORKTREE_CLEANUP_UNPUSHED);
     CHECK_STATE("dirty-feature", GIT_WORKTREE_CLEANUP_DIRTY);
     CHECK_STATE("locked-feature", GIT_WORKTREE_CLEANUP_LOCKED);
     CHECK_STATE("gone-feature", GIT_WORKTREE_CLEANUP_UPSTREAM_GONE);
@@ -377,6 +407,11 @@ static int verify_removal(cleanup_fixture *fixture)
                                    &fixture->error) != 0);
     CHECK(strstr(fixture->error, "unpushed") != NULL);
     CHECK(stat(fixture->unmerged_path, &information) == 0);
+    CHECK(git_worktree_remove_safe(&fixture->repository,
+                                   fixture->ahead_path,
+                                   &fixture->error) != 0);
+    CHECK(strstr(fixture->error, "unpushed") != NULL);
+    CHECK(stat(fixture->ahead_path, &information) == 0);
 
     CHECK(git_worktree_remove_safe(&fixture->repository,
                                    fixture->tracked_path,
@@ -422,6 +457,7 @@ int main(void)
         create_detached_worktree(&fixture) != 0 ||
         create_upstream_gone_worktree(&fixture) != 0 ||
         create_tracked_worktree(&fixture) != 0 ||
+        create_ahead_worktree(&fixture) != 0 ||
         create_invalid_worktrees(&fixture) != 0 ||
         verify_classifications(&fixture) != 0 ||
         verify_removal(&fixture) != 0 ||
