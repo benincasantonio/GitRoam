@@ -61,6 +61,31 @@ static int test_worktree_parser(void)
     return 0;
 }
 
+static int test_worktree_parser_growth(void)
+{
+    char data[4096];
+    size_t length = 0;
+    size_t index;
+    git_worktree_list list = { 0 };
+
+    for (index = 0; index < 40; index++) {
+        int written = snprintf(data + length, sizeof(data) - length,
+                               "worktree /tmp/worktree-%zu", index);
+
+        CHECK(written > 0);
+        CHECK((size_t)written + 2 <= sizeof(data) - length);
+        length += (size_t)written + 1;
+        data[length++] = '\0';
+    }
+    CHECK(git_worktrees_parse(data, length, &list) == 0);
+    CHECK(list.count == 40);
+    CHECK(list.capacity >= list.count);
+    CHECK(strcmp(list.items[0].path, "/tmp/worktree-0") == 0);
+    CHECK(strcmp(list.items[39].path, "/tmp/worktree-39") == 0);
+    git_worktree_list_destroy(&list);
+    return 0;
+}
+
 static int test_repository_dedup_index(void)
 {
     git_repository_list list = { 0 };
@@ -142,6 +167,53 @@ static int write_file(const char *path, const char *contents)
     return 0;
 }
 
+static int test_deep_discovery(void)
+{
+    enum { DIRECTORY_DEPTH = 384 };
+    char template[] = "/tmp/gitroam-depth-test-XXXXXX";
+    char *root = mkdtemp(template);
+    char current[PATH_MAX];
+    char absolute[PATH_MAX];
+    size_t length;
+    size_t depth;
+    discovery_options options;
+    git_repository_list repositories = { 0 };
+    char *error = NULL;
+
+    CHECK(root != NULL);
+    CHECK(snprintf(current, sizeof(current), "%s", root) <
+          (int)sizeof(current));
+    length = strlen(current);
+    for (depth = 0; depth < DIRECTORY_DEPTH; depth++) {
+        CHECK(length + 2 < sizeof(current));
+        memcpy(current + length, "/d", 3);
+        length += 2;
+        CHECK(mkdir(current, 0700) == 0);
+    }
+    {
+        const char *init_arguments[] = {
+            "git", "init", "-b", "main", current, NULL
+        };
+
+        CHECK(run_ok(init_arguments) == 0);
+    }
+    CHECK(realpath(current, absolute) != NULL);
+    discovery_options_init(&options);
+    options.max_depth = DIRECTORY_DEPTH + 1;
+    CHECK(discover_repositories_with_options(root, &options, &repositories,
+                                             &error) == 0);
+    CHECK(repositories.count == 1);
+    CHECK(strcmp(repositories.items[0].path, absolute) == 0);
+    git_repository_list_destroy(&repositories);
+    free(error);
+    {
+        const char *cleanup[] = { "rm", "-rf", root, NULL };
+
+        CHECK(run_ok(cleanup) == 0);
+    }
+    return 0;
+}
+
 static int integration_test(void)
 {
     char template[] = "/tmp/gitroam-test-XXXXXX";
@@ -152,6 +224,8 @@ static int integration_test(void)
     char occupied[PATH_MAX];
     char marker[PATH_MAX];
     char remote_worktree[PATH_MAX];
+    char local_worktree[PATH_MAX];
+    char local_worktree_absolute[PATH_MAX];
     char dependency_parent[PATH_MAX];
     char dependency_repository[PATH_MAX];
     char nested_parent[PATH_MAX];
@@ -202,6 +276,7 @@ static int integration_test(void)
     char *primary = NULL;
     char *default_path = NULL;
     char *created_path = NULL;
+    char *local_created_path = NULL;
     char *existing_path = NULL;
     char *error = NULL;
     git_create_status create_status;
@@ -264,6 +339,21 @@ static int integration_test(void)
     {
         struct stat worktree_information;
         CHECK(stat(remote_worktree, &worktree_information) == 0);
+        CHECK(S_ISDIR(worktree_information.st_mode));
+    }
+
+    CHECK(snprintf(local_worktree, sizeof(local_worktree),
+                   "%s/local worktree", root) < (int)sizeof(local_worktree));
+    create_status = git_create_worktree(&repository, "local-only",
+                                        "local worktree",
+                                        &local_created_path, &error);
+    CHECK(create_status == GIT_CREATE_OK);
+    CHECK(local_created_path != NULL);
+    CHECK(realpath(local_worktree, local_worktree_absolute) != NULL);
+    CHECK(strcmp(local_created_path, local_worktree_absolute) == 0);
+    {
+        struct stat worktree_information;
+        CHECK(stat(local_worktree, &worktree_information) == 0);
         CHECK(S_ISDIR(worktree_information.st_mode));
     }
 
@@ -334,6 +424,7 @@ static int integration_test(void)
     git_repository_destroy(&repository);
     free(default_path);
     free(created_path);
+    free(local_created_path);
     free(existing_path);
     free(error);
     {
@@ -346,8 +437,10 @@ static int integration_test(void)
 int main(void)
 {
     if (test_worktree_parser() != 0 ||
+        test_worktree_parser_growth() != 0 ||
         test_repository_dedup_index() != 0 ||
         test_repository_copy() != 0 ||
+        test_deep_discovery() != 0 ||
         integration_test() != 0) {
         return EXIT_FAILURE;
     }

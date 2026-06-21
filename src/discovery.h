@@ -1,5 +1,5 @@
-#ifndef DISCOVERY_H
-#define DISCOVERY_H
+#ifndef GITROAM_DISCOVERY_H
+#define GITROAM_DISCOVERY_H
 
 #include "git.h"
 
