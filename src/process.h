@@ -1,5 +1,5 @@
-#ifndef PROCESS_H
-#define PROCESS_H
+#ifndef GITROAM_PROCESS_H
+#define GITROAM_PROCESS_H
 
 #include <stddef.h>
 

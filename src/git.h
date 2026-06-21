@@ -31,6 +31,7 @@ typedef struct {
 typedef struct {
     git_worktree *items;
     size_t count;
+    size_t capacity;
 } git_worktree_list;
 
 typedef enum {

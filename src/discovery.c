@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -195,61 +196,132 @@ static bool entry_is_directory(const char *path, const struct dirent *entry)
     }
 }
 
-static int scan_directory(const char *path, git_repository_list *list,
-                          char **error, unsigned int depth,
-                          const discovery_options *options)
+typedef struct {
+    char *path;
+    unsigned int depth;
+} scan_entry;
+
+typedef struct {
+    scan_entry *items;
+    size_t count;
+    size_t capacity;
+} scan_stack;
+
+static void scan_stack_destroy(scan_stack *stack)
 {
-    DIR *directory;
-    struct dirent *entry;
+    size_t index;
 
-    /* Stop recursion as soon as a repository root is reached. */
-    if (has_git_marker(path)) {
-        git_repository repository = { 0 };
-        char *open_error = NULL;
+    for (index = 0; index < stack->count; index++) {
+        free(stack->items[index].path);
+    }
+    free(stack->items);
+    memset(stack, 0, sizeof(*stack));
+}
 
-        if (git_repository_open(path, &repository, &open_error) == 0) {
-            if (git_repository_list_add(list, &repository) != 0) {
+static int scan_stack_push(scan_stack *stack, const char *path,
+                           unsigned int depth)
+{
+    scan_entry *items;
+    char *path_copy;
+    size_t capacity;
+
+    if (stack->count == stack->capacity) {
+        if (stack->capacity > SIZE_MAX / 2) {
+            return -1;
+        }
+        capacity = stack->capacity == 0 ? 16 : stack->capacity * 2;
+        if (capacity > SIZE_MAX / sizeof(*items)) {
+            return -1;
+        }
+        items = realloc(stack->items, capacity * sizeof(*items));
+        if (items == NULL) {
+            return -1;
+        }
+        stack->items = items;
+        stack->capacity = capacity;
+    }
+    path_copy = copy_string(path);
+    if (path_copy == NULL) {
+        return -1;
+    }
+    stack->items[stack->count].path = path_copy;
+    stack->items[stack->count].depth = depth;
+    stack->count++;
+    return 0;
+}
+
+static int scan_directories(const char *path, git_repository_list *list,
+                            char **error,
+                            const discovery_options *options)
+{
+    scan_stack stack = { 0 };
+
+    if (scan_stack_push(&stack, path, 0) != 0) {
+        set_error(error, "Out of memory");
+        return -1;
+    }
+    while (stack.count > 0) {
+        scan_entry current = stack.items[--stack.count];
+        DIR *directory;
+        struct dirent *entry;
+
+        /* Stop descending as soon as a repository root is reached. */
+        if (has_git_marker(current.path)) {
+            git_repository repository = { 0 };
+            char *open_error = NULL;
+
+            if (git_repository_open(current.path, &repository,
+                                    &open_error) == 0 &&
+                git_repository_list_add(list, &repository) != 0) {
                 git_repository_destroy(&repository);
                 free(open_error);
+                free(current.path);
+                scan_stack_destroy(&stack);
+                set_error(error, "Out of memory");
+                return -1;
+            }
+            free(open_error);
+            free(current.path);
+            continue;
+        }
+        if (looks_like_bare_repository(current.path) ||
+            current.depth >= options->max_depth) {
+            free(current.path);
+            continue;
+        }
+        directory = opendir(current.path);
+        if (directory == NULL) {
+            free(current.path);
+            continue;
+        }
+        while ((entry = readdir(directory)) != NULL) {
+            char child[PATH_MAX];
+
+            if (strcmp(entry->d_name, ".") == 0 ||
+                strcmp(entry->d_name, "..") == 0 ||
+                strcmp(entry->d_name, ".git") == 0 ||
+                name_is_excluded(entry->d_name, options)) {
+                continue;
+            }
+            if (!entry_is_directory(current.path, entry)) {
+                continue;
+            }
+            if (snprintf(child, sizeof(child), "%s/%s", current.path,
+                         entry->d_name) >= (int)sizeof(child)) {
+                continue;
+            }
+            if (scan_stack_push(&stack, child, current.depth + 1) != 0) {
+                (void)closedir(directory);
+                free(current.path);
+                scan_stack_destroy(&stack);
                 set_error(error, "Out of memory");
                 return -1;
             }
         }
-        free(open_error);
-        return 0;
+        (void)closedir(directory);
+        free(current.path);
     }
-    if (looks_like_bare_repository(path)) {
-        return 0;
-    }
-    if (depth >= options->max_depth) {
-        return 0;
-    }
-    directory = opendir(path);
-    if (directory == NULL) {
-        return 0;
-    }
-    while ((entry = readdir(directory)) != NULL) {
-        char child[PATH_MAX];
-
-        if (strcmp(entry->d_name, ".") == 0 ||
-            strcmp(entry->d_name, "..") == 0 ||
-            strcmp(entry->d_name, ".git") == 0 ||
-            name_is_excluded(entry->d_name, options)) {
-            continue;
-        }
-        if (!entry_is_directory(path, entry)) {
-            continue;
-        }
-        if (snprintf(child, sizeof(child), "%s/%s", path, entry->d_name) >=
-            (int)sizeof(child)) {
-            continue;
-        }
-        if (scan_directory(child, list, error, depth + 1, options) != 0) {
-            (void)closedir(directory);
-            return -1;
-        }
-    }
-    (void)closedir(directory);
+    scan_stack_destroy(&stack);
     return 0;
 }
 
@@ -288,7 +360,7 @@ int discover_repositories_with_options(const char *root,
         return git_repository_list_add(list, &containing);
     }
     free(ignored_error);
-    if (scan_directory(absolute, list, error, 0, options) != 0) {
+    if (scan_directories(absolute, list, error, options) != 0) {
         git_repository_list_destroy(list);
         return -1;
     }

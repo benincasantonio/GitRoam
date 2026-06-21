@@ -1,5 +1,5 @@
-#ifndef TUI_INTERNAL_H
-#define TUI_INTERNAL_H
+#ifndef GITROAM_TUI_INTERNAL_H
+#define GITROAM_TUI_INTERNAL_H
 
 #include "tui_backend.h"
 

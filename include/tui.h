@@ -1,5 +1,5 @@
-#ifndef TUI_H
-#define TUI_H
+#ifndef GITROAM_TUI_H
+#define GITROAM_TUI_H
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -130,6 +130,7 @@ Ownership rules:
 - `tui_screen_add_widget` takes ownership of a widget on success.
 - Menu labels, dialog text, prompts, and input values are copied by the
   library.
+- Interactive text entry currently accepts printable ASCII characters only.
 - Widget callback contexts are borrowed and never freed by the library.
 - A screen context can optionally supply a destructor.
 

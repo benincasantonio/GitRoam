@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <libgen.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -245,14 +246,14 @@ int git_repository_open(const char *path, git_repository *repository,
     return 0;
 }
 
-static size_t common_dir_hash(const char *value)
+static uint64_t common_dir_hash(const char *value)
 {
     const unsigned char *byte = (const unsigned char *)value;
-    size_t hash = (size_t)1469598103934665603ULL;
+    uint64_t hash = UINT64_C(14695981039346656037);
 
     while (*byte != '\0') {
-        hash ^= (size_t)*byte++;
-        hash *= (size_t)1099511628211ULL;
+        hash ^= (uint64_t)*byte++;
+        hash *= UINT64_C(1099511628211);
     }
     return hash;
 }
@@ -269,7 +270,8 @@ static int repository_index_resize(git_repository_list *list,
         return -1;
     }
     for (index = 0; index < list->count; index++) {
-        size_t slot = common_dir_hash(list->items[index].common_dir) &
+        size_t slot = (size_t)common_dir_hash(
+                          list->items[index].common_dir) &
                       (new_capacity - 1);
 
         while (keys[slot] != NULL) {
@@ -302,7 +304,7 @@ int git_repository_list_add(git_repository_list *list,
         repository_index_resize(list, list->index_capacity * 2) != 0) {
         return -1;
     }
-    slot = common_dir_hash(repository->common_dir) &
+    slot = (size_t)common_dir_hash(repository->common_dir) &
            (list->index_capacity - 1);
     while (list->index_keys[slot] != NULL) {
         if (strcmp(list->index_keys[slot], repository->common_dir) == 0) {
@@ -351,13 +353,24 @@ void git_worktree_list_destroy(git_worktree_list *list)
 
 static int append_worktree(git_worktree_list *list, git_worktree *worktree)
 {
-    git_worktree *items = realloc(list->items,
-                                  (list->count + 1) * sizeof(*items));
+    git_worktree *items;
+    size_t capacity;
 
-    if (items == NULL) {
-        return -1;
+    if (list->count == list->capacity) {
+        if (list->capacity > SIZE_MAX / 2) {
+            return -1;
+        }
+        capacity = list->capacity == 0 ? 8 : list->capacity * 2;
+        if (capacity > SIZE_MAX / sizeof(*items)) {
+            return -1;
+        }
+        items = realloc(list->items, capacity * sizeof(*items));
+        if (items == NULL) {
+            return -1;
+        }
+        list->items = items;
+        list->capacity = capacity;
     }
-    list->items = items;
     list->items[list->count++] = *worktree;
     memset(worktree, 0, sizeof(*worktree));
     return 0;
@@ -800,7 +813,7 @@ git_create_status git_create_worktree(const git_repository *repository,
             argument -= 4;
             arguments[argument++] = "-b";
             arguments[argument++] = branch;
-            arguments[argument++] = destination;
+            arguments[argument++] = destination_path;
             if (primary_start_ref(repository, &start, error) != 0) {
                 free(ref);
                 free(remote);
