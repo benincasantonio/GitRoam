@@ -151,7 +151,7 @@ static int integration_test(void)
     char remote_path[PATH_MAX];
     char occupied[PATH_MAX];
     char marker[PATH_MAX];
-    char remote_workspace[PATH_MAX];
+    char remote_worktree[PATH_MAX];
     char dependency_parent[PATH_MAX];
     char dependency_repository[PATH_MAX];
     char nested_parent[PATH_MAX];
@@ -255,16 +255,16 @@ static int integration_test(void)
     CHECK(run_ok(branch_remote) == 0);
     CHECK(run_ok(push_remote) == 0);
     CHECK(run_ok(delete_remote_local) == 0);
-    CHECK(snprintf(remote_workspace, sizeof(remote_workspace),
-                   "%s/remote workspace", root) <
-          (int)sizeof(remote_workspace));
+    CHECK(snprintf(remote_worktree, sizeof(remote_worktree),
+                   "%s/remote worktree", root) <
+          (int)sizeof(remote_worktree));
     create_status = git_create_worktree(&repository, "remote-only",
-                                        "remote workspace", NULL, &error);
+                                        "remote worktree", NULL, &error);
     CHECK(create_status == GIT_CREATE_OK);
     {
-        struct stat workspace_information;
-        CHECK(stat(remote_workspace, &workspace_information) == 0);
-        CHECK(S_ISDIR(workspace_information.st_mode));
+        struct stat worktree_information;
+        CHECK(stat(remote_worktree, &worktree_information) == 0);
+        CHECK(S_ISDIR(worktree_information.st_mode));
     }
 
     CHECK(snprintf(occupied, sizeof(occupied), "%s/occupied", root) <

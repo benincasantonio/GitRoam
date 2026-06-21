@@ -145,7 +145,7 @@ static int launch_shell(void *opaque)
     return 1;
 }
 
-static bool open_workspace(tui_app *app, const char *path)
+static bool open_worktree(tui_app *app, const char *path)
 {
     shell_context context = { path };
     int result = 0;
@@ -183,19 +183,19 @@ static void destination_submitted(tui_app *app, tui_widget *widget,
                                  &error);
     if (status != GIT_CREATE_OK && status != GIT_CREATE_EXISTING) {
         app_show_message(
-            app, "Could not create workspace",
+            app, "Could not create worktree",
             error == NULL ? "Git worktree creation failed." : error);
         free(error);
         return;
     }
     free(error);
     if (path == NULL) {
-        app_show_message(app, "Could not open workspace",
-                         "Git did not return a workspace path.");
+        app_show_message(app, "Could not open worktree",
+                         "Git did not return a worktree path.");
         return;
     }
     pop_count = context->pop_after_open;
-    if (!open_workspace(app, path)) {
+    if (!open_worktree(app, path)) {
         free(path);
         return;
     }
@@ -232,7 +232,7 @@ static void push_destination_input(tui_app *app, gitroam_state *state,
         context->pop_after_open = pop_after_open;
     }
     if (context == NULL || context->branch == NULL ||
-        tui_screen_create(&screen, "Workspace destination", context,
+        tui_screen_create(&screen, "Worktree destination", context,
                           destination_context_destroy) != TUI_OK) {
         destination_context_destroy(context);
         free(destination);
@@ -241,7 +241,7 @@ static void push_destination_input(tui_app *app, gitroam_state *state,
         return;
     }
     context = NULL;
-    if (tui_text_input_create(&input, "Workspace path", destination,
+    if (tui_text_input_create(&input, "Worktree path", destination,
                               destination_submitted,
                               tui_screen_context(screen)) != TUI_OK ||
         app_screen_take_widget(screen, &input) != TUI_OK ||
@@ -284,7 +284,7 @@ static void push_branch_input(tui_app *app, gitroam_state *state,
     tui_widget *input = NULL;
 
     if (context == NULL ||
-        tui_screen_create(&screen, "Create workspace", context,
+        tui_screen_create(&screen, "Create worktree", context,
                           repository_context_destroy) != TUI_OK) {
         free(context);
         app_show_message(app, "Out of memory",
@@ -325,7 +325,7 @@ static void worktree_selected(tui_app *app, tui_widget *widget,
 
     (void)widget;
     if (git_worktrees(repository, &list, &error) != 0) {
-        app_show_message(app, "Could not list workspaces",
+        app_show_message(app, "Could not list worktrees",
                          error == NULL ? "Git command failed." : error);
         free(error);
         return;
@@ -335,7 +335,7 @@ static void worktree_selected(tui_app *app, tui_widget *widget,
         (void)tui_app_pop_screen(app);
         return;
     }
-    open_workspace(app, list.items[selected].path);
+    open_worktree(app, list.items[selected].path);
     git_worktree_list_destroy(&list);
     if (build_worktree_screen(&replacement, context->state,
                               context->repository) == TUI_OK) {
@@ -391,7 +391,7 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
     if (labels[list.count] == NULL) {
         goto done;
     }
-    (void)snprintf(title, sizeof(title), "%s workspaces", repository->name);
+    (void)snprintf(title, sizeof(title), "%s worktrees", repository->name);
     if (tui_screen_create(&screen, title, context,
                           repository_context_destroy) != TUI_OK) {
         goto done;
@@ -430,14 +430,14 @@ static void push_worktree_screen(tui_app *app, gitroam_state *state,
     tui_screen *screen = NULL;
 
     if (build_worktree_screen(&screen, state, repository) != TUI_OK) {
-        app_show_message(app, "Could not list workspaces",
+        app_show_message(app, "Could not list worktrees",
                          "Git worktree listing failed.");
         return;
     }
     if (tui_app_push_screen(app, screen) != TUI_OK) {
         tui_screen_destroy(screen);
         app_show_message(app, "Out of memory",
-                         "Could not open the workspace list.");
+                         "Could not open the worktree list.");
     }
 }
 
@@ -458,7 +458,7 @@ static void navigate_primary(tui_app *app, gitroam_state *state,
         return;
     }
     if (git_worktrees(repository, &list, &error) != 0) {
-        app_show_message(app, "Could not list workspaces",
+        app_show_message(app, "Could not list worktrees",
                          error == NULL ? "Git command failed." : error);
         free(error);
         free(primary);
@@ -467,7 +467,7 @@ static void navigate_primary(tui_app *app, gitroam_state *state,
     for (index = 0; index < list.count; index++) {
         if (list.items[index].branch != NULL &&
             strcmp(list.items[index].branch, primary) == 0) {
-            open_workspace(app, list.items[index].path);
+            open_worktree(app, list.items[index].path);
             git_worktree_list_destroy(&list);
             free(primary);
             return;
@@ -509,9 +509,9 @@ static void push_repository_actions(tui_app *app, gitroam_state *state,
 {
     static const char *actions[] = {
         "Navigate to primary branch",
-        "Select workspace",
-        "Create workspace",
-        "Clean workspaces",
+        "Select worktree",
+        "Create worktree",
+        "Clean worktrees",
         "Back"
     };
     repository_context *context =

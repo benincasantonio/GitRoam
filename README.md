@@ -107,7 +107,7 @@ main worktree's parent directory. Existing local branches are attached,
 unambiguous remote-only branches become tracking branches, and otherwise a new
 branch is created from the primary branch.
 
-Opening a workspace suspends the TUI and starts `$SHELL -i` there. Exiting the
+Opening a worktree suspends the TUI and starts `$SHELL -i` there. Exiting the
 shell returns to GitRoam.
 
 ## Reusable TUI library

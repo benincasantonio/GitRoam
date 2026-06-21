@@ -116,27 +116,27 @@ static int fixture_init(cleanup_fixture *fixture)
     CHECK(fixture_path(fixture->remote_path, sizeof(fixture->remote_path),
                        fixture->root, "origin.git") == 0);
     CHECK(fixture_path(fixture->merged_path, sizeof(fixture->merged_path),
-                       fixture->root, "merged workspace") == 0);
+                       fixture->root, "merged worktree") == 0);
     CHECK(fixture_path(fixture->unmerged_path,
                        sizeof(fixture->unmerged_path), fixture->root,
-                       "unmerged workspace") == 0);
+                       "unmerged worktree") == 0);
     CHECK(fixture_path(fixture->tracked_path,
                        sizeof(fixture->tracked_path), fixture->root,
-                       "tracked workspace") == 0);
+                       "tracked worktree") == 0);
     CHECK(fixture_path(fixture->dirty_path, sizeof(fixture->dirty_path),
-                       fixture->root, "dirty workspace") == 0);
+                       fixture->root, "dirty worktree") == 0);
     CHECK(fixture_path(fixture->locked_path, sizeof(fixture->locked_path),
-                       fixture->root, "locked workspace") == 0);
+                       fixture->root, "locked worktree") == 0);
     CHECK(fixture_path(fixture->detached_path,
                        sizeof(fixture->detached_path), fixture->root,
-                       "detached workspace") == 0);
+                       "detached worktree") == 0);
     CHECK(fixture_path(fixture->gone_path, sizeof(fixture->gone_path),
-                       fixture->root, "gone workspace") == 0);
+                       fixture->root, "gone worktree") == 0);
     CHECK(fixture_path(fixture->inspection_path,
                        sizeof(fixture->inspection_path), fixture->root,
-                       "inspection workspace") == 0);
+                       "inspection worktree") == 0);
     CHECK(fixture_path(fixture->stale_path, sizeof(fixture->stale_path),
-                       fixture->root, "stale workspace") == 0);
+                       fixture->root, "stale worktree") == 0);
     CHECK(fixture_path(primary_file, sizeof(primary_file),
                        fixture->repository_path, "file.txt") == 0);
     CHECK(run_ok(init) == 0);
