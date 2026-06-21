@@ -1,7 +1,7 @@
 # GitRoam
 
 GitRoam is a small C11 terminal application for discovering Git
-repositories and working with their linked worktrees. Its interface is built
+repositories and working with their linked workspaces. Its interface is built
 on a reusable, Git-independent ncurses library included as `libtui.a`.
 
 ## Build
@@ -20,7 +20,7 @@ make
 
 This produces:
 
-- `gitroam` — the repository/worktree browser
+- `gitroam` — the repository/workspace browser
 - `libtui.a` — the reusable TUI library
 - `tui-demo` — a small non-Git example
 
@@ -65,7 +65,7 @@ If the root is inside a Git repository, only that repository is opened.
 Otherwise GitRoam recursively scans the root without following symbolic
 links. Repositories sharing the same common Git directory are deduplicated.
 Repository metadata is collected with one Git command per discovered
-repository; worktree details are loaded only after a repository is selected.
+repository; workspace details are loaded only after a repository is selected.
 
 By default, the scanner skips common dependency, cache, and generated-output
 directories:
@@ -98,12 +98,12 @@ Controls:
 - `q`: quit from menu screens
 
 Selecting a repository provides actions to open its primary branch, select an
-existing worktree, or create a worktree. The primary branch is resolved from
+existing workspace, or create a workspace. The primary branch is resolved from
 `origin/HEAD`, then `main`, then `master`.
 
-New worktrees default to a sibling of the main worktree named
+New workspaces default to a sibling of the main workspace named
 `<repository>-<branch>`. Relative destination paths are resolved beneath the
-main worktree's parent directory. Existing local branches are attached,
+main workspace's parent directory. Existing local branches are attached,
 unambiguous remote-only branches become tracking branches, and otherwise a new
 branch is created from the primary branch.
 

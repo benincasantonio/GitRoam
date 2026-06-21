@@ -354,24 +354,28 @@ static int verify_removal(cleanup_fixture *fixture)
     CHECK(git_worktree_remove_safe(&fixture->repository,
                                    fixture->repository_path,
                                    &fixture->error) != 0);
-    CHECK(strstr(fixture->error, "primary") != NULL);
+    CHECK(strcmp(fixture->error,
+                 "The primary workspace cannot be removed") == 0);
     CHECK(git_worktree_remove_safe(&fixture->repository, fixture->dirty_path,
                                    &fixture->error) != 0);
-    CHECK(strstr(fixture->error, "modified or untracked") != NULL);
+    CHECK(strcmp(fixture->error,
+                 "The workspace has modified or untracked files") == 0);
     CHECK(git_worktree_remove_safe(&fixture->repository, fixture->locked_path,
                                    &fixture->error) != 0);
-    CHECK(strstr(fixture->error, "locked") != NULL);
+    CHECK(strcmp(fixture->error, "The workspace is locked") == 0);
     CHECK(git_worktree_remove_safe(&fixture->repository,
                                    fixture->detached_path,
                                    &fixture->error) != 0);
-    CHECK(strstr(fixture->error, "detached") != NULL);
+    CHECK(strcmp(fixture->error,
+                 "The detached workspace contains an unmerged commit") == 0);
     CHECK(git_worktree_remove_safe(&fixture->repository, fixture->stale_path,
                                    &fixture->error) != 0);
-    CHECK(strstr(fixture->error, "pruning") != NULL);
+    CHECK(strcmp(fixture->error, "Prune stale workspace metadata") == 0);
     CHECK(git_worktree_remove_safe(&fixture->repository,
                                    fixture->inspection_path,
                                    &fixture->error) != 0);
-    CHECK(strstr(fixture->error, "inspected safely") != NULL);
+    CHECK(strcmp(fixture->error,
+                 "The workspace could not be inspected safely") == 0);
     CHECK(git_worktree_remove_safe(&fixture->repository,
                                    fixture->unmerged_path,
                                    &fixture->error) != 0);

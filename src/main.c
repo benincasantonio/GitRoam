@@ -184,7 +184,7 @@ static void destination_submitted(tui_app *app, tui_widget *widget,
     if (status != GIT_CREATE_OK && status != GIT_CREATE_EXISTING) {
         app_show_message(
             app, "Could not create workspace",
-            error == NULL ? "Git worktree creation failed." : error);
+            error == NULL ? "Workspace creation failed." : error);
         free(error);
         return;
     }
@@ -220,7 +220,8 @@ static void push_destination_input(tui_app *app, gitroam_state *state,
     if (destination == NULL) {
         app_show_message(
             app, "Could not choose destination",
-            error == NULL ? "Unable to determine the main worktree." : error);
+            error == NULL ?
+                "Unable to determine the main workspace." : error);
         free(error);
         return;
     }
@@ -431,7 +432,7 @@ static void push_worktree_screen(tui_app *app, gitroam_state *state,
 
     if (build_worktree_screen(&screen, state, repository) != TUI_OK) {
         app_show_message(app, "Could not list workspaces",
-                         "Git worktree listing failed.");
+                         "Workspace listing failed.");
         return;
     }
     if (tui_app_push_screen(app, screen) != TUI_OK) {

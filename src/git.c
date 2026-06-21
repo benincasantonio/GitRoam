@@ -459,7 +459,7 @@ int git_worktrees(const git_repository *repository, git_worktree_list *list,
                                        result.stdout_length, list);
     process_result_destroy(&result);
     if (parse_result != 0) {
-        git_internal_set_error(error, "Could not parse git worktree output");
+        git_internal_set_error(error, "Could not parse Git workspace output");
     }
     return parse_result;
 }
@@ -734,7 +734,7 @@ git_create_status git_create_worktree(const git_repository *repository,
         *resolved_path = NULL;
     }
     if (repository == NULL || branch == NULL || destination == NULL) {
-        git_internal_set_error(error, "Invalid worktree request");
+        git_internal_set_error(error, "Invalid workspace request");
         return GIT_CREATE_FAILED;
     }
     if (git_internal_run(repository, validate_arguments, &result) != 0) {

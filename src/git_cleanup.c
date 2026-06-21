@@ -421,7 +421,7 @@ static int set_commit_time(const git_repository *repository,
         record = find_branch(snapshot, worktree->branch);
         if (record == NULL) {
             git_internal_set_error(error,
-                                   "Worktree branch metadata is missing");
+                                   "Workspace branch metadata is missing");
             return -1;
         }
         item->last_commit = record->last_commit;
@@ -563,25 +563,25 @@ static const char *blocked_removal_message(
 {
     switch (state) {
     case GIT_WORKTREE_CLEANUP_PRIMARY:
-        return "The primary worktree cannot be removed";
+        return "The primary workspace cannot be removed";
     case GIT_WORKTREE_CLEANUP_LOCKED:
-        return "The worktree is locked";
+        return "The workspace is locked";
     case GIT_WORKTREE_CLEANUP_DIRTY:
-        return "The worktree has modified or untracked files";
+        return "The workspace has modified or untracked files";
     case GIT_WORKTREE_CLEANUP_STALE_METADATA:
-        return "Use worktree pruning for stale metadata";
+        return "Prune stale workspace metadata";
     case GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED:
         return "The branch has unpushed commits and no upstream";
     case GIT_WORKTREE_CLEANUP_DETACHED_UNMERGED:
-        return "The detached worktree contains an unmerged commit";
+        return "The detached workspace contains an unmerged commit";
     case GIT_WORKTREE_CLEANUP_INSPECTION_FAILED:
-        return "The worktree could not be inspected safely";
+        return "The workspace could not be inspected safely";
     case GIT_WORKTREE_CLEANUP_MERGED:
     case GIT_WORKTREE_CLEANUP_UPSTREAM_GONE:
     case GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED:
         break;
     }
-    return "The worktree cannot be removed safely";
+    return "The workspace cannot be removed safely";
 }
 
 int git_worktree_remove_safe(const git_repository *repository,
@@ -593,7 +593,7 @@ int git_worktree_remove_safe(const git_repository *repository,
     int status = -1;
 
     if (repository == NULL || path == NULL || path[0] == '\0') {
-        git_internal_set_error(error, "Invalid worktree removal request");
+        git_internal_set_error(error, "Invalid workspace removal request");
         return -1;
     }
     if (git_worktree_cleanup_scan(repository, &list, error) != 0) {
@@ -629,7 +629,7 @@ int git_worktree_remove_safe(const git_repository *repository,
         status = 0;
         goto done;
     }
-    git_internal_set_error(error, "The worktree no longer exists");
+    git_internal_set_error(error, "The workspace no longer exists");
 
 done:
     git_worktree_cleanup_list_destroy(&list);
@@ -644,7 +644,8 @@ int git_worktree_prune(const git_repository *repository, char **error)
     process_result result;
 
     if (repository == NULL) {
-        git_internal_set_error(error, "Invalid worktree prune request");
+        git_internal_set_error(
+            error, "Invalid workspace metadata pruning request");
         return -1;
     }
     if (git_internal_run(repository, arguments, &result) != 0) {
