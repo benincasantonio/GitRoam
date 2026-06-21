@@ -11,6 +11,12 @@ typedef enum {
     TUI_WIDGET_STATUS_BAR
 } tui_widget_type;
 
+typedef enum {
+    TUI_MENU_FILTER_INACTIVE,
+    TUI_MENU_FILTER_EDITING,
+    TUI_MENU_FILTER_APPLIED
+} tui_menu_filter_state;
+
 struct tui_widget {
     tui_widget_type type;
     bool focusable;
@@ -32,6 +38,9 @@ struct tui_widget {
                 char *query;
                 size_t length;
                 size_t capacity;
+                char *saved_query;
+                size_t saved_length;
+                tui_menu_filter_state state;
             } filter;
         } menu;
         struct {

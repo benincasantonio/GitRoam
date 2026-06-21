@@ -410,6 +410,7 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
         goto done;
     }
     context = NULL;
+    tui_screen_set_event_handler(screen, app_quit_shortcut, NULL);
     if (tui_menu_create(&menu, label_view, list.count + 1,
                         worktree_selected, tui_screen_context(screen)) !=
             TUI_OK ||
@@ -418,7 +419,8 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
         app_screen_take_widget(screen, &menu) != TUI_OK ||
         app_screen_add_status(
             screen,
-            "Type: filter  Arrows: move  Enter: open  Esc: clear/back") !=
+            "/: filter  Arrows: move  Enter: open  "
+            "Esc: clear/back  q: quit") !=
             TUI_OK) {
         goto done;
     }

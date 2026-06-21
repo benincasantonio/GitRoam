@@ -152,6 +152,9 @@ static tui_status backend_read_event(void *opaque, tui_event *event)
     case 8:
         event->type = TUI_EVENT_BACKSPACE;
         break;
+    case 21:
+        event->type = TUI_EVENT_CLEAR_LINE;
+        break;
     case KEY_DC:
         event->type = TUI_EVENT_DELETE;
         break;

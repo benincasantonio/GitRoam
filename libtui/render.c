@@ -40,11 +40,26 @@ static void render_menu(tui_backend *backend, tui_widget *widget,
 
     if (widget->data.menu.filter.terms != NULL) {
         char filter_line[1024];
+        tui_menu_filter_state state = widget->data.menu.filter.state;
 
-        (void)snprintf(filter_line, sizeof(filter_line), "Filter: %s",
-                       widget->data.menu.filter.query);
+        if (state == TUI_MENU_FILTER_EDITING) {
+            (void)snprintf(filter_line, sizeof(filter_line),
+                           "[FILTER] %s_", widget->data.menu.filter.query);
+        } else if (state == TUI_MENU_FILTER_APPLIED) {
+            (void)snprintf(filter_line, sizeof(filter_line), "Filter: %s",
+                           widget->data.menu.filter.query);
+        } else {
+            (void)snprintf(filter_line, sizeof(filter_line),
+                           "Filter: press / to search");
+        }
         backend->draw_text(backend->context, top, left, width, filter_line,
                            TUI_STYLE_TITLE);
+        if (state == TUI_MENU_FILTER_EDITING) {
+            backend->draw_text(
+                backend->context, top + 1, left, width,
+                "Enter: apply  Esc: cancel  Ctrl-U: clear",
+                TUI_STYLE_DIM);
+        }
         top += 2;
         height -= 2;
         if (widget->data.menu.filter.length > 0 &&

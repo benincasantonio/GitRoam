@@ -21,6 +21,7 @@ typedef struct {
     int shutdown_count;
     char selected_line[128];
     bool saw_filter_q;
+    bool saw_filter_help;
     bool saw_no_matches;
 } fake_context;
 
@@ -57,8 +58,11 @@ static void fake_draw_text(void *opaque, int row, int column, int width,
     (void)row;
     (void)column;
     (void)width;
-    if (strcmp(text, "Filter: q") == 0) {
+    if (strcmp(text, "[FILTER] q_") == 0) {
         context->saw_filter_q = true;
+    }
+    if (strcmp(text, "Enter: apply  Esc: cancel  Ctrl-U: clear") == 0) {
+        context->saw_filter_help = true;
     }
     if (strcmp(text, "No matching items") == 0) {
         context->saw_no_matches = true;
@@ -135,6 +139,24 @@ typedef struct {
     int calls;
 } menu_result;
 
+typedef struct {
+    int calls;
+} shortcut_result;
+
+static bool quit_shortcut(tui_app *app, tui_screen *screen,
+                          const tui_event *event, void *opaque)
+{
+    shortcut_result *result = opaque;
+
+    (void)screen;
+    if (event->type == TUI_EVENT_CHARACTER && event->character == 'q') {
+        result->calls++;
+        tui_app_stop(app);
+        return true;
+    }
+    return false;
+}
+
 static void menu_callback(tui_app *app, tui_widget *widget, size_t selected,
                           void *opaque)
 {
@@ -186,7 +208,8 @@ static int test_menu_navigation(void)
 
 static int run_filtered_menu(tui_event *events, size_t event_count,
                              size_t searchable_count,
-                             menu_result *result, fake_context *context)
+                             menu_result *result, fake_context *context,
+                             shortcut_result *shortcut)
 {
     static const char *labels[] = {
         "Feature Alpha", "Feature Quick", "Detached worktree", "Back"
@@ -205,6 +228,9 @@ static int run_filtered_menu(tui_event *events, size_t event_count,
     context->event_count = event_count;
     CHECK(tui_app_create_with_backend(&app, fake_backend(context)) == TUI_OK);
     CHECK(tui_screen_create(&screen, "filtered menu", NULL, NULL) == TUI_OK);
+    if (shortcut != NULL) {
+        tui_screen_set_event_handler(screen, quit_shortcut, shortcut);
+    }
     CHECK(tui_menu_create(&menu, labels, 4, menu_callback, result) == TUI_OK);
     CHECK(tui_menu_enable_filter(menu, search_terms,
                                  searchable_count) == TUI_OK);
@@ -222,6 +248,7 @@ static int run_filtered_menu(tui_event *events, size_t event_count,
 static int test_menu_filter_matching(void)
 {
     tui_event events[] = {
+        { TUI_EVENT_CHARACTER, '/' },
         { TUI_EVENT_CHARACTER, 'P' },
         { TUI_EVENT_CHARACTER, 'R' },
         { TUI_EVENT_CHARACTER, 'O' },
@@ -233,6 +260,7 @@ static int test_menu_filter_matching(void)
         { TUI_EVENT_CHARACTER, 'T' },
         { TUI_EVENT_CHARACTER, 'W' },
         { TUI_EVENT_CHARACTER, 'O' },
+        { TUI_EVENT_ENTER, 0 },
         { TUI_EVENT_ENTER, 0 }
     };
     fake_context context = { 0 };
@@ -240,7 +268,7 @@ static int test_menu_filter_matching(void)
 
     CHECK(run_filtered_menu(
               events, sizeof(events) / sizeof(events[0]), 3,
-              &result, &context) == 0);
+              &result, &context, NULL) == 0);
     CHECK(result.calls == 1);
     CHECK(result.selected == 1);
     CHECK(strstr(context.selected_line, "Feature Quick") != NULL);
@@ -250,11 +278,13 @@ static int test_menu_filter_matching(void)
 static int test_menu_filter_editing(void)
 {
     tui_event events[] = {
+        { TUI_EVENT_CHARACTER, '/' },
         { TUI_EVENT_CHARACTER, 'z' },
         { TUI_EVENT_BACKSPACE, 0 },
         { TUI_EVENT_CHARACTER, 'D' },
         { TUI_EVENT_CHARACTER, 'E' },
         { TUI_EVENT_CHARACTER, 'T' },
+        { TUI_EVENT_ENTER, 0 },
         { TUI_EVENT_ENTER, 0 }
     };
     fake_context context = { 0 };
@@ -262,40 +292,109 @@ static int test_menu_filter_editing(void)
 
     CHECK(run_filtered_menu(
               events, sizeof(events) / sizeof(events[0]), 3,
-              &result, &context) == 0);
+              &result, &context, NULL) == 0);
     CHECK(context.saw_no_matches);
     CHECK(result.calls == 1);
     CHECK(result.selected == 2);
     return 0;
 }
 
-static int test_menu_filter_escape_and_q(void)
+static int test_menu_filter_q_and_shortcut_priority(void)
 {
-    tui_event events[] = {
+    tui_event editing_events[] = {
+        { TUI_EVENT_CHARACTER, '/' },
+        { TUI_EVENT_CHARACTER, 'q' },
+        { TUI_EVENT_ENTER, 0 },
+        { TUI_EVENT_ENTER, 0 }
+    };
+    tui_event normal_events[] = {
+        { TUI_EVENT_CHARACTER, 'q' }
+    };
+    fake_context editing_context = { 0 };
+    fake_context normal_context = { 0 };
+    menu_result editing_result = { 0 };
+    menu_result normal_result = { 0 };
+    shortcut_result editing_shortcut = { 0 };
+    shortcut_result normal_shortcut = { 0 };
+
+    CHECK(run_filtered_menu(
+              editing_events,
+              sizeof(editing_events) / sizeof(editing_events[0]), 3,
+              &editing_result, &editing_context, &editing_shortcut) == 0);
+    CHECK(editing_context.saw_filter_q);
+    CHECK(editing_context.saw_filter_help);
+    CHECK(editing_shortcut.calls == 0);
+    CHECK(editing_result.calls == 1);
+    CHECK(editing_result.selected == 1);
+
+    CHECK(run_filtered_menu(
+              normal_events,
+              sizeof(normal_events) / sizeof(normal_events[0]), 3,
+              &normal_result, &normal_context, &normal_shortcut) == 0);
+    CHECK(normal_shortcut.calls == 1);
+    CHECK(normal_result.calls == 0);
+    return 0;
+}
+
+static int test_menu_filter_escape_and_clear_line(void)
+{
+    tui_event cancel_events[] = {
+        { TUI_EVENT_CHARACTER, '/' },
+        { TUI_EVENT_CHARACTER, 'a' },
+        { TUI_EVENT_CHARACTER, 'l' },
+        { TUI_EVENT_CHARACTER, 'p' },
+        { TUI_EVENT_CHARACTER, 'h' },
+        { TUI_EVENT_CHARACTER, 'a' },
+        { TUI_EVENT_ENTER, 0 },
+        { TUI_EVENT_CHARACTER, '/' },
+        { TUI_EVENT_CLEAR_LINE, 0 },
         { TUI_EVENT_CHARACTER, 'q' },
         { TUI_EVENT_ESCAPE, 0 },
         { TUI_EVENT_ENTER, 0 }
     };
-    fake_context context = { 0 };
-    menu_result result = { 0 };
+    tui_event clear_applied_events[] = {
+        { TUI_EVENT_CHARACTER, '/' },
+        { TUI_EVENT_CHARACTER, 'q' },
+        { TUI_EVENT_ENTER, 0 },
+        { TUI_EVENT_ESCAPE, 0 },
+        { TUI_EVENT_DOWN, 0 },
+        { TUI_EVENT_DOWN, 0 },
+        { TUI_EVENT_ENTER, 0 }
+    };
+    fake_context cancel_context = { 0 };
+    fake_context clear_context = { 0 };
+    menu_result cancel_result = { 0 };
+    menu_result clear_result = { 0 };
 
     CHECK(run_filtered_menu(
-              events, sizeof(events) / sizeof(events[0]), 3,
-              &result, &context) == 0);
-    CHECK(context.saw_filter_q);
-    CHECK(result.calls == 1);
-    CHECK(result.selected == 0);
+              cancel_events,
+              sizeof(cancel_events) / sizeof(cancel_events[0]), 3,
+              &cancel_result, &cancel_context, NULL) == 0);
+    CHECK(cancel_result.calls == 1);
+    CHECK(cancel_result.selected == 0);
+
+    CHECK(run_filtered_menu(
+              clear_applied_events,
+              sizeof(clear_applied_events) /
+                  sizeof(clear_applied_events[0]),
+              3, &clear_result, &clear_context, NULL) == 0);
+    CHECK(clear_result.calls == 1);
+    CHECK(clear_result.selected == 2);
     return 0;
 }
 
 static int test_menu_filter_pinned_and_empty_results(void)
 {
     tui_event pinned_events[] = {
+        { TUI_EVENT_CHARACTER, '/' },
         { TUI_EVENT_CHARACTER, 'z' },
+        { TUI_EVENT_ENTER, 0 },
         { TUI_EVENT_ENTER, 0 }
     };
     tui_event empty_events[] = {
-        { TUI_EVENT_CHARACTER, 'z' }
+        { TUI_EVENT_CHARACTER, '/' },
+        { TUI_EVENT_CHARACTER, 'z' },
+        { TUI_EVENT_ENTER, 0 }
     };
     fake_context pinned_context = { 0 };
     fake_context empty_context = { 0 };
@@ -305,7 +404,7 @@ static int test_menu_filter_pinned_and_empty_results(void)
     CHECK(run_filtered_menu(
               pinned_events,
               sizeof(pinned_events) / sizeof(pinned_events[0]), 3,
-              &pinned_result, &pinned_context) == 0);
+              &pinned_result, &pinned_context, NULL) == 0);
     CHECK(pinned_context.saw_no_matches);
     CHECK(pinned_result.calls == 1);
     CHECK(pinned_result.selected == 3);
@@ -313,7 +412,7 @@ static int test_menu_filter_pinned_and_empty_results(void)
     CHECK(run_filtered_menu(
               empty_events,
               sizeof(empty_events) / sizeof(empty_events[0]), 4,
-              &empty_result, &empty_context) == 0);
+              &empty_result, &empty_context, NULL) == 0);
     CHECK(empty_context.saw_no_matches);
     CHECK(empty_result.calls == 0);
     return 0;
@@ -369,6 +468,37 @@ static int test_input_editing(void)
     return 0;
 }
 
+static int test_input_clear_line(void)
+{
+    tui_event events[] = {
+        { TUI_EVENT_CLEAR_LINE, 0 },
+        { TUI_EVENT_CHARACTER, 'x' },
+        { TUI_EVENT_ENTER, 0 }
+    };
+    fake_context context = {
+        .events = events,
+        .event_count = sizeof(events) / sizeof(events[0])
+    };
+    input_result result = { { 0 }, 0 };
+    tui_app *app = NULL;
+    tui_screen *screen = NULL;
+    tui_widget *input = NULL;
+
+    CHECK(tui_app_create_with_backend(&app, fake_backend(&context)) == TUI_OK);
+    CHECK(tui_screen_create(&screen, "input", NULL, NULL) == TUI_OK);
+    CHECK(tui_text_input_create(&input, "value", "initial", input_callback,
+                                &result) == TUI_OK);
+    CHECK(tui_screen_add_widget(screen, input) == TUI_OK);
+    input = NULL;
+    CHECK(tui_app_push_screen(app, screen) == TUI_OK);
+    screen = NULL;
+    CHECK(tui_app_run(app) == TUI_OK);
+    CHECK(result.calls == 1);
+    CHECK(strcmp(result.value, "x") == 0);
+    tui_app_destroy(app);
+    return 0;
+}
+
 static void count_destroy(void *opaque)
 {
     int *count = opaque;
@@ -412,9 +542,11 @@ int main(void)
     if (test_menu_navigation() != 0 ||
         test_menu_filter_matching() != 0 ||
         test_menu_filter_editing() != 0 ||
-        test_menu_filter_escape_and_q() != 0 ||
+        test_menu_filter_q_and_shortcut_priority() != 0 ||
+        test_menu_filter_escape_and_clear_line() != 0 ||
         test_menu_filter_pinned_and_empty_results() != 0 ||
         test_input_editing() != 0 ||
+        test_input_clear_line() != 0 ||
         test_screen_stack_and_ownership() != 0) {
         return EXIT_FAILURE;
     }

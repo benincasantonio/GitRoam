@@ -225,6 +225,7 @@ void tui_widget_destroy(tui_widget *widget)
         free(widget->data.menu.filter.terms);
         free(widget->data.menu.filter.visible_items);
         free(widget->data.menu.filter.query);
+        free(widget->data.menu.filter.saved_query);
         break;
     case TUI_WIDGET_TEXT_INPUT:
         free(widget->data.input.prompt);
@@ -427,6 +428,49 @@ static void menu_apply_filter(tui_widget *widget)
     widget->data.menu.scroll = 0;
 }
 
+static bool menu_filter_begin_editing(tui_widget *widget)
+{
+    char *saved_query = tui_strdup(widget->data.menu.filter.query);
+
+    if (saved_query == NULL) {
+        return true;
+    }
+    free(widget->data.menu.filter.saved_query);
+    widget->data.menu.filter.saved_query = saved_query;
+    widget->data.menu.filter.saved_length =
+        widget->data.menu.filter.length;
+    widget->data.menu.filter.state = TUI_MENU_FILTER_EDITING;
+    return true;
+}
+
+static void menu_filter_finish_editing(tui_widget *widget)
+{
+    free(widget->data.menu.filter.saved_query);
+    widget->data.menu.filter.saved_query = NULL;
+    widget->data.menu.filter.saved_length = 0;
+    widget->data.menu.filter.state =
+        widget->data.menu.filter.length == 0 ?
+            TUI_MENU_FILTER_INACTIVE : TUI_MENU_FILTER_APPLIED;
+}
+
+static void menu_filter_cancel_editing(tui_widget *widget)
+{
+    memcpy(widget->data.menu.filter.query,
+           widget->data.menu.filter.saved_query,
+           widget->data.menu.filter.saved_length + 1);
+    widget->data.menu.filter.length =
+        widget->data.menu.filter.saved_length;
+    menu_filter_finish_editing(widget);
+    menu_apply_filter(widget);
+}
+
+static void menu_filter_clear(tui_widget *widget)
+{
+    widget->data.menu.filter.query[0] = '\0';
+    widget->data.menu.filter.length = 0;
+    menu_apply_filter(widget);
+}
+
 static bool menu_filter_insert(tui_widget *widget, unsigned int character)
 {
     char *filter;
@@ -464,12 +508,22 @@ bool tui_widget_handle_event(tui_app *app, tui_widget *widget,
     if (widget->type == TUI_WIDGET_MENU ||
         widget->type == TUI_WIDGET_ACTION_DIALOG) {
         size_t visible_count = tui_menu_visible_count(widget);
+        bool filter_enabled = widget->data.menu.filter.terms != NULL;
+        bool filter_editing =
+            widget->data.menu.filter.state == TUI_MENU_FILTER_EDITING;
 
-        if (widget->data.menu.filter.terms != NULL) {
-            if (event->type == TUI_EVENT_CHARACTER) {
+        if (filter_enabled) {
+            if (!filter_editing &&
+                event->type == TUI_EVENT_CHARACTER &&
+                event->character == '/') {
+                return menu_filter_begin_editing(widget);
+            }
+            if (filter_editing &&
+                event->type == TUI_EVENT_CHARACTER) {
                 return menu_filter_insert(widget, event->character);
             }
-            if (event->type == TUI_EVENT_BACKSPACE) {
+            if (filter_editing &&
+                event->type == TUI_EVENT_BACKSPACE) {
                 if (widget->data.menu.filter.length > 0) {
                     widget->data.menu.filter.query[
                         --widget->data.menu.filter.length] = '\0';
@@ -477,11 +531,28 @@ bool tui_widget_handle_event(tui_app *app, tui_widget *widget,
                 }
                 return true;
             }
-            if (event->type == TUI_EVENT_ESCAPE &&
-                widget->data.menu.filter.length > 0) {
-                widget->data.menu.filter.query[0] = '\0';
-                widget->data.menu.filter.length = 0;
-                menu_apply_filter(widget);
+            if (filter_editing &&
+                event->type == TUI_EVENT_CLEAR_LINE) {
+                menu_filter_clear(widget);
+                return true;
+            }
+            if (filter_editing &&
+                event->type == TUI_EVENT_ENTER) {
+                menu_filter_finish_editing(widget);
+                return true;
+            }
+            if (filter_editing &&
+                event->type == TUI_EVENT_ESCAPE) {
+                menu_filter_cancel_editing(widget);
+                return true;
+            }
+            if (!filter_editing &&
+                widget->data.menu.filter.state ==
+                    TUI_MENU_FILTER_APPLIED &&
+                event->type == TUI_EVENT_ESCAPE) {
+                menu_filter_clear(widget);
+                widget->data.menu.filter.state =
+                    TUI_MENU_FILTER_INACTIVE;
                 return true;
             }
         }
@@ -550,6 +621,12 @@ bool tui_widget_handle_event(tui_app *app, tui_widget *widget,
                 widget->data.input.cursor--;
                 widget->data.input.length--;
             }
+            return true;
+        }
+        if (event->type == TUI_EVENT_CLEAR_LINE) {
+            widget->data.input.value[0] = '\0';
+            widget->data.input.length = 0;
+            widget->data.input.cursor = 0;
             return true;
         }
         if (event->type == TUI_EVENT_DELETE) {

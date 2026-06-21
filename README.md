@@ -93,11 +93,12 @@ Controls:
 
 - Up/Down: move selection
 - Enter: select or confirm
-- Type in a worktree list: filter by branch or folder name
-- Backspace: edit an active worktree filter
-- Escape: clear an active filter, otherwise go back
+- `/` in a worktree list: edit a branch/folder filter
+- Enter while editing: apply the filter
+- Backspace or `Ctrl+U`: edit or clear the pending filter
+- Escape: cancel editing, clear an applied filter, or go back
 - `r`: refresh the repository list
-- `q`: quit from non-filtering menu screens
+- `q`: quit outside filter editing
 
 Selecting a repository provides actions to open its primary branch, select an
 existing worktree, or create a worktree. The primary branch is resolved from

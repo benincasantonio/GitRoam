@@ -167,17 +167,19 @@ void tui_app_stop(tui_app *app)
     }
 }
 
-static bool dispatch_default(tui_app *app, tui_screen *screen,
-                             const tui_event *event)
+static bool dispatch_focused_widget(tui_app *app, tui_screen *screen,
+                                    const tui_event *event)
 {
     tui_widget *widget = NULL;
 
     if (screen->widget_count > 0 && screen->focused < screen->widget_count) {
         widget = screen->widgets[screen->focused];
     }
-    if (widget != NULL && tui_widget_handle_event(app, widget, event)) {
-        return true;
-    }
+    return widget != NULL && tui_widget_handle_event(app, widget, event);
+}
+
+static bool dispatch_default(tui_app *app, const tui_event *event)
+{
     if (event->type == TUI_EVENT_ESCAPE) {
         if (app->screen_count > 1) {
             (void)tui_app_pop_screen(app);
@@ -231,12 +233,13 @@ tui_status tui_app_run(tui_app *app)
             app->dirty = true;
             continue;
         }
-        if (screen->event_handler != NULL) {
+        handled = dispatch_focused_widget(app, screen, &event);
+        if (!handled && screen->event_handler != NULL) {
             handled = screen->event_handler(app, screen, &event,
                                             screen->event_context);
         }
         if (!handled) {
-            handled = dispatch_default(app, screen, &event);
+            handled = dispatch_default(app, &event);
         }
         if (handled) {
             app->dirty = true;

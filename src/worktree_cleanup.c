@@ -431,6 +431,7 @@ static tui_status create_cleanup_screen(tui_screen **out_screen,
         goto done;
     }
     context = NULL;
+    tui_screen_set_event_handler(screen, app_quit_shortcut, NULL);
     if (tui_menu_create(&menu, label_view, item_count, cleanup_selected,
                         tui_screen_context(screen)) != TUI_OK ||
         (worktree_count != 0 &&
@@ -439,7 +440,8 @@ static tui_status create_cleanup_screen(tui_screen **out_screen,
         app_screen_take_widget(screen, &menu) != TUI_OK ||
         app_screen_add_status(
             screen,
-            "Type: filter  Enter: inspect/remove  Esc: clear/back") !=
+            "/: filter  Enter: inspect/remove  "
+            "Esc: clear/back  q: quit") !=
             TUI_OK) {
         goto done;
     }
