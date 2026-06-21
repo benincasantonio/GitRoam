@@ -84,17 +84,17 @@ static const char *protected_message(git_worktree_cleanup_state state)
 {
     switch (state) {
     case GIT_WORKTREE_CLEANUP_PRIMARY:
-        return "The primary workspace is always protected.";
+        return "The primary worktree is always protected.";
     case GIT_WORKTREE_CLEANUP_LOCKED:
-        return "Unlock this workspace before considering removal.";
+        return "Unlock this worktree before considering removal.";
     case GIT_WORKTREE_CLEANUP_DIRTY:
-        return "This workspace has modified or untracked files.";
+        return "This worktree has modified or untracked files.";
     case GIT_WORKTREE_CLEANUP_STALE_METADATA:
         return "The directory is missing. Prune its stale Git metadata.";
     case GIT_WORKTREE_CLEANUP_DETACHED_UNMERGED:
-        return "This detached workspace contains an unmerged commit.";
+        return "This detached worktree contains an unmerged commit.";
     case GIT_WORKTREE_CLEANUP_INSPECTION_FAILED:
-        return "GitRoam could not inspect this workspace safely.";
+        return "GitRoam could not inspect this worktree safely.";
     case GIT_WORKTREE_CLEANUP_LOCAL_UNMERGED:
         return "This branch has unpushed commits and no upstream remote.";
     case GIT_WORKTREE_CLEANUP_MERGED:
@@ -102,7 +102,7 @@ static const char *protected_message(git_worktree_cleanup_state state)
     case GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED:
         break;
     }
-    return "This workspace is protected.";
+    return "This worktree is protected.";
 }
 
 static void format_commit_age(time_t commit_time, char *buffer, size_t size)
@@ -192,27 +192,27 @@ static void confirmation_selected(tui_app *app, tui_widget *widget,
         if (git_worktree_prune(context->repository, &error) != 0) {
             app_show_message(app, "Metadata not pruned",
                              error == NULL ?
-                                 "Workspace metadata pruning failed." : error);
+                                 "Git worktree prune failed." : error);
             free(error);
             return;
         }
         show_refresh_result(app, context->repository, "Metadata pruned",
-                            "Stale workspace metadata was removed.");
+                            "Stale worktree metadata was removed.");
         return;
     }
     if (git_worktree_remove_safe(context->repository, context->path,
                                  &error) != 0) {
-        app_show_message(app, "Workspace not removed",
+        app_show_message(app, "Worktree not removed",
                          error == NULL ?
-                             "The workspace is no longer removable." : error);
+                             "The worktree is no longer removable." : error);
         free(error);
         return;
     }
     show_refresh_result(
-        app, context->repository, "Workspace removed",
+        app, context->repository, "Worktree removed",
         context->branch_retained ?
-            "The workspace was removed; its branch was retained." :
-            "The detached workspace was removed.");
+            "The worktree was removed; its branch was retained." :
+            "The detached worktree was removed.");
 }
 
 static void push_confirmation(tui_app *app, confirmation_context *context,
@@ -263,7 +263,7 @@ static void confirm_prune(tui_app *app, const git_repository *repository)
     context->repository = repository;
     context->action = CLEANUP_PRUNE_METADATA;
     push_confirmation(app, context, "Confirm metadata pruning",
-                      "Remove metadata for missing workspace directories?",
+                      "Remove metadata for missing worktree directories?",
                       "Prune stale metadata");
 }
 
@@ -284,13 +284,13 @@ static void confirm_removal(tui_app *app, const git_repository *repository,
     if (context == NULL || context->path == NULL) {
         confirmation_context_destroy(context);
         app_show_message(app, "Out of memory",
-                         "Could not prepare workspace removal.");
+                         "Could not prepare worktree removal.");
         return;
     }
     switch (worktree->state) {
     case GIT_WORKTREE_CLEANUP_CLEAN_UNMERGED:
         (void)snprintf(message, sizeof(message),
-                       "Remove unmerged workspace %s? Branch retained.",
+                       "Remove unmerged worktree %s? Branch retained.",
                        branch);
         break;
     case GIT_WORKTREE_CLEANUP_UPSTREAM_GONE:
@@ -301,10 +301,10 @@ static void confirm_removal(tui_app *app, const git_repository *repository,
     default:
         if (worktree->branch == NULL) {
             (void)snprintf(message, sizeof(message),
-                           "Remove merged detached workspace?");
+                           "Remove merged detached worktree?");
         } else {
             (void)snprintf(message, sizeof(message),
-                           "Remove merged workspace %s? Branch retained.",
+                           "Remove merged worktree %s? Branch retained.",
                            branch);
         }
         break;
@@ -315,8 +315,8 @@ static void confirm_removal(tui_app *app, const git_repository *repository,
         (void)snprintf(message + used, sizeof(message) - used,
                        " Ignored files in the folder are deleted.");
     }
-    push_confirmation(app, context, "Confirm workspace removal", message,
-                      "Remove workspace");
+    push_confirmation(app, context, "Confirm worktree removal", message,
+                      "Remove worktree");
 }
 
 static void cleanup_selected(tui_app *app, tui_widget *widget,
@@ -334,7 +334,7 @@ static void cleanup_selected(tui_app *app, tui_widget *widget,
                    GIT_WORKTREE_CLEANUP_STALE_METADATA) {
             confirm_prune(app, &context->repository);
         } else {
-            app_show_message(app, "Workspace protected",
+            app_show_message(app, "Worktree protected",
                              protected_message(worktree->state));
         }
         return;
@@ -443,8 +443,8 @@ void worktree_cleanup_open(tui_app *app,
     tui_screen *screen = NULL;
 
     if (create_cleanup_screen(&screen, repository) != TUI_OK) {
-        app_show_message(app, "Could not inspect workspaces",
-                         "Workspace cleanup analysis failed.");
+        app_show_message(app, "Could not inspect worktrees",
+                         "Git worktree cleanup analysis failed.");
         return;
     }
     if (tui_app_push_screen(app, screen) != TUI_OK) {
