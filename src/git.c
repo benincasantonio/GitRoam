@@ -12,6 +12,30 @@
 #include <string.h>
 #include <sys/stat.h>
 
+enum {
+    GIT_COMMAND_ARGUMENT_CAPACITY = 32
+};
+
+static int next_array_capacity(size_t current, size_t initial,
+                               size_t item_size, size_t *next)
+{
+    size_t capacity;
+
+    if (current == 0) {
+        capacity = initial;
+    } else {
+        if (current > SIZE_MAX / 2) {
+            return -1;
+        }
+        capacity = current * 2;
+    }
+    if (capacity > SIZE_MAX / item_size) {
+        return -1;
+    }
+    *next = capacity;
+    return 0;
+}
+
 char *git_internal_string_copy(const char *value)
 {
     size_t length;
@@ -79,7 +103,7 @@ void git_internal_set_error(char **error, const char *message)
 int git_internal_run(const git_repository *repository,
                      const char *const arguments[], process_result *result)
 {
-    const char *argv[32];
+    const char *argv[GIT_COMMAND_ARGUMENT_CAPACITY];
     size_t index = 0;
     size_t argument = 0;
 
@@ -88,7 +112,8 @@ int git_internal_run(const git_repository *repository,
         argv[index++] = "-C";
         argv[index++] = repository->path;
     }
-    while (arguments[argument] != NULL && index + 1 < 32) {
+    while (arguments[argument] != NULL &&
+           index + 1 < GIT_COMMAND_ARGUMENT_CAPACITY) {
         argv[index++] = arguments[argument++];
     }
     if (arguments[argument] != NULL) {
@@ -249,6 +274,7 @@ int git_repository_open(const char *path, git_repository *repository,
 static uint64_t common_dir_hash(const char *value)
 {
     const unsigned char *byte = (const unsigned char *)value;
+    /* 64-bit FNV-1a offset basis and prime. */
     uint64_t hash = UINT64_C(14695981039346656037);
 
     while (*byte != '\0') {
@@ -258,6 +284,20 @@ static uint64_t common_dir_hash(const char *value)
     return hash;
 }
 
+static size_t repository_index_slot(const char *common_dir, size_t capacity)
+{
+    return (size_t)(common_dir_hash(common_dir) &
+                    (uint64_t)(capacity - 1));
+}
+
+static size_t repository_index_growth_threshold(size_t capacity)
+{
+    size_t quotient = capacity / 10;
+    size_t remainder = capacity % 10;
+
+    return quotient * 7 + (remainder * 7 + 9) / 10;
+}
+
 static int repository_index_resize(git_repository_list *list,
                                    size_t new_capacity)
 {
@@ -265,14 +305,18 @@ static int repository_index_resize(git_repository_list *list,
     char **keys;
     size_t index;
 
+    if (new_capacity == 0 ||
+        (new_capacity & (new_capacity - 1)) != 0 ||
+        new_capacity > SIZE_MAX / sizeof(*keys)) {
+        return -1;
+    }
     keys = calloc(new_capacity, sizeof(*keys));
     if (keys == NULL) {
         return -1;
     }
     for (index = 0; index < list->count; index++) {
-        size_t slot = (size_t)common_dir_hash(
-                          list->items[index].common_dir) &
-                      (new_capacity - 1);
+        size_t slot = repository_index_slot(
+            list->items[index].common_dir, new_capacity);
 
         while (keys[slot] != NULL) {
             slot = (slot + 1) & (new_capacity - 1);
@@ -300,12 +344,14 @@ int git_repository_list_add(git_repository_list *list,
         repository_index_resize(list, 16) != 0) {
         return -1;
     }
-    if ((list->count + 1) * 10 >= list->index_capacity * 7 &&
-        repository_index_resize(list, list->index_capacity * 2) != 0) {
+    if (list->count >=
+            repository_index_growth_threshold(list->index_capacity) - 1 &&
+        (list->index_capacity > SIZE_MAX / 2 ||
+         repository_index_resize(list, list->index_capacity * 2) != 0)) {
         return -1;
     }
-    slot = (size_t)common_dir_hash(repository->common_dir) &
-           (list->index_capacity - 1);
+    slot = repository_index_slot(repository->common_dir,
+                                 list->index_capacity);
     while (list->index_keys[slot] != NULL) {
         if (strcmp(list->index_keys[slot], repository->common_dir) == 0) {
             git_repository_destroy(repository);
@@ -314,7 +360,10 @@ int git_repository_list_add(git_repository_list *list,
         slot = (slot + 1) & (list->index_capacity - 1);
     }
     if (list->count == list->capacity) {
-        capacity = list->capacity == 0 ? 8 : list->capacity * 2;
+        if (next_array_capacity(list->capacity, 8, sizeof(*items),
+                                &capacity) != 0) {
+            return -1;
+        }
         items = realloc(list->items, capacity * sizeof(*items));
         if (items == NULL) {
             return -1;
@@ -357,11 +406,8 @@ static int append_worktree(git_worktree_list *list, git_worktree *worktree)
     size_t capacity;
 
     if (list->count == list->capacity) {
-        if (list->capacity > SIZE_MAX / 2) {
-            return -1;
-        }
-        capacity = list->capacity == 0 ? 8 : list->capacity * 2;
-        if (capacity > SIZE_MAX / sizeof(*items)) {
+        if (next_array_capacity(list->capacity, 8, sizeof(*items),
+                                &capacity) != 0) {
             return -1;
         }
         items = realloc(list->items, capacity * sizeof(*items));
@@ -442,6 +488,7 @@ int git_worktrees_parse(const char *data, size_t length,
     if (current.path != NULL && append_worktree(list, &current) != 0) {
         goto failure;
     }
+    worktree_destroy(&current);
     return 0;
 
 failure:

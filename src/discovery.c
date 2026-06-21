@@ -250,13 +250,29 @@ static int scan_stack_push(scan_stack *stack, const char *path,
     return 0;
 }
 
+static void scan_stack_reverse_from(scan_stack *stack, size_t first)
+{
+    size_t last = stack->count;
+
+    while (last - first > 1) {
+        scan_entry temporary = stack->items[first];
+
+        stack->items[first] = stack->items[last - 1];
+        stack->items[last - 1] = temporary;
+        first++;
+        last--;
+    }
+}
+
 static int scan_directories(const char *path, git_repository_list *list,
                             char **error,
                             const discovery_options *options)
 {
     scan_stack stack = { 0 };
+    int result = 0;
 
     if (scan_stack_push(&stack, path, 0) != 0) {
+        scan_stack_destroy(&stack);
         set_error(error, "Out of memory");
         return -1;
     }
@@ -264,23 +280,24 @@ static int scan_directories(const char *path, git_repository_list *list,
         scan_entry current = stack.items[--stack.count];
         DIR *directory;
         struct dirent *entry;
+        size_t first_child;
 
         /* Stop descending as soon as a repository root is reached. */
         if (has_git_marker(current.path)) {
             git_repository repository = { 0 };
             char *open_error = NULL;
+            int open_result;
 
-            if (git_repository_open(current.path, &repository,
-                                    &open_error) == 0 &&
+            open_result = git_repository_open(current.path, &repository,
+                                              &open_error);
+            free(open_error);
+            if (open_result == 0 &&
                 git_repository_list_add(list, &repository) != 0) {
                 git_repository_destroy(&repository);
-                free(open_error);
                 free(current.path);
-                scan_stack_destroy(&stack);
-                set_error(error, "Out of memory");
-                return -1;
+                result = -1;
+                break;
             }
-            free(open_error);
             free(current.path);
             continue;
         }
@@ -294,6 +311,7 @@ static int scan_directories(const char *path, git_repository_list *list,
             free(current.path);
             continue;
         }
+        first_child = stack.count;
         while ((entry = readdir(directory)) != NULL) {
             char child[PATH_MAX];
 
@@ -311,18 +329,28 @@ static int scan_directories(const char *path, git_repository_list *list,
                 continue;
             }
             if (scan_stack_push(&stack, child, current.depth + 1) != 0) {
-                (void)closedir(directory);
-                free(current.path);
-                scan_stack_destroy(&stack);
-                set_error(error, "Out of memory");
-                return -1;
+                result = -1;
+                break;
             }
+        }
+        if (result == 0) {
+            /*
+             * The stack is LIFO. Reverse only the children collected
+             * from this directory to preserve recursive DFS order.
+             */
+            scan_stack_reverse_from(&stack, first_child);
         }
         (void)closedir(directory);
         free(current.path);
+        if (result != 0) {
+            break;
+        }
     }
     scan_stack_destroy(&stack);
-    return 0;
+    if (result != 0) {
+        set_error(error, "Out of memory");
+    }
+    return result;
 }
 
 int discover_repositories(const char *root, git_repository_list *list,

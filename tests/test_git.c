@@ -167,6 +167,53 @@ static int write_file(const char *path, const char *contents)
     return 0;
 }
 
+static int test_deep_discovery(void)
+{
+    enum { DIRECTORY_DEPTH = 384 };
+    char template[] = "/tmp/gitroam-depth-test-XXXXXX";
+    char *root = mkdtemp(template);
+    char current[PATH_MAX];
+    char absolute[PATH_MAX];
+    size_t length;
+    size_t depth;
+    discovery_options options;
+    git_repository_list repositories = { 0 };
+    char *error = NULL;
+
+    CHECK(root != NULL);
+    CHECK(snprintf(current, sizeof(current), "%s", root) <
+          (int)sizeof(current));
+    length = strlen(current);
+    for (depth = 0; depth < DIRECTORY_DEPTH; depth++) {
+        CHECK(length + 2 < sizeof(current));
+        memcpy(current + length, "/d", 3);
+        length += 2;
+        CHECK(mkdir(current, 0700) == 0);
+    }
+    {
+        const char *init_arguments[] = {
+            "git", "init", "-b", "main", current, NULL
+        };
+
+        CHECK(run_ok(init_arguments) == 0);
+    }
+    CHECK(realpath(current, absolute) != NULL);
+    discovery_options_init(&options);
+    options.max_depth = DIRECTORY_DEPTH + 1;
+    CHECK(discover_repositories_with_options(root, &options, &repositories,
+                                             &error) == 0);
+    CHECK(repositories.count == 1);
+    CHECK(strcmp(repositories.items[0].path, absolute) == 0);
+    git_repository_list_destroy(&repositories);
+    free(error);
+    {
+        const char *cleanup[] = { "rm", "-rf", root, NULL };
+
+        CHECK(run_ok(cleanup) == 0);
+    }
+    return 0;
+}
+
 static int integration_test(void)
 {
     char template[] = "/tmp/gitroam-test-XXXXXX";
@@ -393,6 +440,7 @@ int main(void)
         test_worktree_parser_growth() != 0 ||
         test_repository_dedup_index() != 0 ||
         test_repository_copy() != 0 ||
+        test_deep_discovery() != 0 ||
         integration_test() != 0) {
         return EXIT_FAILURE;
     }
