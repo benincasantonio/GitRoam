@@ -355,6 +355,8 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
     tui_widget *menu = NULL;
     char **labels = NULL;
     const char **label_view = NULL;
+    char **search_terms = NULL;
+    const char **search_view = NULL;
     char *error = NULL;
     size_t index;
     tui_status result = TUI_ERR_MEMORY;
@@ -366,8 +368,13 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
     }
     labels = calloc(list.count + 1, sizeof(*labels));
     label_view = calloc(list.count + 1, sizeof(*label_view));
+    search_terms = calloc(list.count, sizeof(*search_terms));
+    search_view = calloc(list.count, sizeof(*search_view));
     context = repository_context_create(state, repository_index);
-    if (labels == NULL || label_view == NULL || context == NULL) {
+    if (labels == NULL || label_view == NULL ||
+        (list.count != 0 &&
+         (search_terms == NULL || search_view == NULL)) ||
+        context == NULL) {
         goto done;
     }
     for (index = 0; index < list.count; index++) {
@@ -385,6 +392,12 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
         (void)snprintf(labels[index], length, "%s  %s%s", branch,
                        list.items[index].path, state_label);
         label_view[index] = labels[index];
+        search_terms[index] = app_worktree_search_term(
+            list.items[index].branch, list.items[index].path);
+        search_view[index] = search_terms[index];
+        if (search_terms[index] == NULL) {
+            goto done;
+        }
     }
     labels[list.count] = app_string_copy("Back");
     label_view[list.count] = labels[list.count];
@@ -397,13 +410,15 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
         goto done;
     }
     context = NULL;
-    tui_screen_set_event_handler(screen, app_quit_shortcut, NULL);
     if (tui_menu_create(&menu, label_view, list.count + 1,
                         worktree_selected, tui_screen_context(screen)) !=
             TUI_OK ||
+        (list.count != 0 &&
+         tui_menu_enable_filter(menu, search_view, list.count) != TUI_OK) ||
         app_screen_take_widget(screen, &menu) != TUI_OK ||
         app_screen_add_status(
-            screen, "Arrows: move  Enter: open  Esc: back  q: quit") !=
+            screen,
+            "Type: filter  Arrows: move  Enter: open  Esc: clear/back") !=
             TUI_OK) {
         goto done;
     }
@@ -414,9 +429,14 @@ static tui_status build_worktree_screen(tui_screen **out_screen,
 done:
     for (index = 0; index < list.count + 1; index++) {
         free(labels == NULL ? NULL : labels[index]);
+        if (index < list.count) {
+            free(search_terms == NULL ? NULL : search_terms[index]);
+        }
     }
     free(labels);
     free(label_view);
+    free(search_terms);
+    free(search_view);
     free(context);
     tui_widget_destroy(menu);
     tui_screen_destroy(screen);

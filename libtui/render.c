@@ -35,7 +35,27 @@ static void render_menu(tui_backend *backend, tui_widget *widget,
                         int top, int left, int height, int width)
 {
     size_t index;
-    size_t visible = height > 0 ? (size_t)height : 0;
+    size_t item_count = tui_menu_visible_count(widget);
+    size_t visible;
+
+    if (widget->data.menu.filter.terms != NULL) {
+        char filter_line[1024];
+
+        (void)snprintf(filter_line, sizeof(filter_line), "Filter: %s",
+                       widget->data.menu.filter.query);
+        backend->draw_text(backend->context, top, left, width, filter_line,
+                           TUI_STYLE_TITLE);
+        top += 2;
+        height -= 2;
+        if (widget->data.menu.filter.length > 0 &&
+            widget->data.menu.filter.match_count == 0) {
+            backend->draw_text(backend->context, top, left, width,
+                               "No matching items", TUI_STYLE_DIM);
+            top++;
+            height--;
+        }
+    }
+    visible = height > 0 ? (size_t)height : 0;
 
     if (widget->data.menu.selected < widget->data.menu.scroll) {
         widget->data.menu.scroll = widget->data.menu.selected;
@@ -51,7 +71,7 @@ static void render_menu(tui_backend *backend, tui_widget *widget,
         char line[1024];
         unsigned int style = TUI_STYLE_NORMAL;
 
-        if (item >= widget->data.menu.count) {
+        if (item >= item_count) {
             break;
         }
         if (item == widget->data.menu.selected) {
@@ -59,7 +79,8 @@ static void render_menu(tui_backend *backend, tui_widget *widget,
             style = TUI_STYLE_SELECTED;
         }
         (void)snprintf(line, sizeof(line), "%s%s", prefix,
-                       widget->data.menu.labels[item]);
+                       widget->data.menu.labels[
+                           tui_menu_visible_item(widget, item)]);
         backend->draw_text(backend->context, top + (int)index, left, width,
                            line, style);
     }

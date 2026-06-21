@@ -21,6 +21,42 @@ char *app_string_copy(const char *value)
     return copy;
 }
 
+char *app_worktree_search_term(const char *branch, const char *path)
+{
+    const char *branch_term = branch == NULL ? "detached" : branch;
+    const char *folder_start;
+    const char *folder_end;
+    char *term;
+    size_t branch_length;
+    size_t folder_length;
+    size_t length;
+
+    if (path == NULL) {
+        return NULL;
+    }
+    folder_end = path + strlen(path);
+    while (folder_end > path + 1 && folder_end[-1] == '/') {
+        folder_end--;
+    }
+    folder_start = folder_end;
+    while (folder_start > path && folder_start[-1] != '/') {
+        folder_start--;
+    }
+    branch_length = strlen(branch_term);
+    folder_length = (size_t)(folder_end - folder_start);
+    length = branch_length + (folder_length == 0 ? 1 : folder_length + 2);
+    term = malloc(length);
+    if (term != NULL) {
+        memcpy(term, branch_term, branch_length);
+        if (folder_length != 0) {
+            term[branch_length] = ' ';
+            memcpy(term + branch_length + 1, folder_start, folder_length);
+        }
+        term[length - 1] = '\0';
+    }
+    return term;
+}
+
 bool app_quit_shortcut(tui_app *app, tui_screen *screen,
                        const tui_event *event, void *context)
 {

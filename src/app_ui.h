@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 char *app_string_copy(const char *value);
+char *app_worktree_search_term(const char *branch, const char *path);
 bool app_quit_shortcut(tui_app *app, tui_screen *screen,
                        const tui_event *event, void *context);
 void app_show_message(tui_app *app, const char *title, const char *message);

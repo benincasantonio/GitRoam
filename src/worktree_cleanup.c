@@ -355,8 +355,11 @@ static tui_status create_cleanup_screen(tui_screen **out_screen,
     tui_widget *menu = NULL;
     char **labels = NULL;
     const char **label_view = NULL;
+    char **search_terms = NULL;
+    const char **search_view = NULL;
     char *error = NULL;
     size_t item_count = 0;
+    size_t worktree_count = 0;
     size_t index;
     size_t next;
     tui_status result = TUI_ERR_MEMORY;
@@ -376,6 +379,7 @@ static tui_status create_cleanup_screen(tui_screen **out_screen,
         cleanup_context_destroy(context);
         return TUI_ERR_STATE;
     }
+    worktree_count = context->worktrees.count;
     for (index = 0; index < context->worktrees.count; index++) {
         if (context->worktrees.items[index].state ==
             GIT_WORKTREE_CLEANUP_STALE_METADATA) {
@@ -387,13 +391,24 @@ static tui_status create_cleanup_screen(tui_screen **out_screen,
                  (context->has_stale_metadata ? 1 : 0) + 1;
     labels = calloc(item_count, sizeof(*labels));
     label_view = calloc(item_count, sizeof(*label_view));
-    if (labels == NULL || label_view == NULL) {
+    search_terms = calloc(context->worktrees.count, sizeof(*search_terms));
+    search_view = calloc(context->worktrees.count, sizeof(*search_view));
+    if (labels == NULL || label_view == NULL ||
+        (context->worktrees.count != 0 &&
+         (search_terms == NULL || search_view == NULL))) {
         goto done;
     }
     for (index = 0; index < context->worktrees.count; index++) {
         labels[index] = worktree_label(&context->worktrees.items[index]);
         label_view[index] = labels[index];
         if (labels[index] == NULL) {
+            goto done;
+        }
+        search_terms[index] = app_worktree_search_term(
+            context->worktrees.items[index].branch,
+            context->worktrees.items[index].path);
+        search_view[index] = search_terms[index];
+        if (search_terms[index] == NULL) {
             goto done;
         }
     }
@@ -416,12 +431,16 @@ static tui_status create_cleanup_screen(tui_screen **out_screen,
         goto done;
     }
     context = NULL;
-    tui_screen_set_event_handler(screen, app_quit_shortcut, NULL);
     if (tui_menu_create(&menu, label_view, item_count, cleanup_selected,
                         tui_screen_context(screen)) != TUI_OK ||
+        (worktree_count != 0 &&
+         tui_menu_enable_filter(menu, search_view, worktree_count) !=
+             TUI_OK) ||
         app_screen_take_widget(screen, &menu) != TUI_OK ||
         app_screen_add_status(
-            screen, "Enter: inspect/remove  Esc: back  q: quit") != TUI_OK) {
+            screen,
+            "Type: filter  Enter: inspect/remove  Esc: clear/back") !=
+            TUI_OK) {
         goto done;
     }
     *out_screen = screen;
@@ -431,6 +450,8 @@ static tui_status create_cleanup_screen(tui_screen **out_screen,
 done:
     free_labels(labels, item_count);
     free(label_view);
+    free_labels(search_terms, worktree_count);
+    free(search_view);
     cleanup_context_destroy(context);
     tui_widget_destroy(menu);
     tui_screen_destroy(screen);

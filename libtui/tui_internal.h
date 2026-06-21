@@ -23,6 +23,16 @@ struct tui_widget {
             char *message;
             tui_menu_fn callback;
             void *context;
+            struct {
+                char **terms;
+                size_t searchable_count;
+                size_t *visible_items;
+                size_t visible_count;
+                size_t match_count;
+                char *query;
+                size_t length;
+                size_t capacity;
+            } filter;
         } menu;
         struct {
             char *prompt;
@@ -67,6 +77,8 @@ struct tui_app {
 };
 
 char *tui_strdup(const char *value);
+size_t tui_menu_visible_count(const tui_widget *widget);
+size_t tui_menu_visible_item(const tui_widget *widget, size_t visible);
 void tui_render(tui_app *app);
 bool tui_widget_handle_event(tui_app *app, tui_widget *widget,
                              const tui_event *event);

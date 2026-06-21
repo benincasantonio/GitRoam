@@ -81,6 +81,9 @@ size_t tui_app_screen_count(const tui_app *app);
 tui_status tui_menu_create(tui_widget **out_widget,
                            const char *const *labels, size_t count,
                            tui_menu_fn on_activate, void *context);
+tui_status tui_menu_enable_filter(
+    tui_widget *menu, const char *const *search_terms,
+    size_t searchable_count);
 tui_status tui_action_dialog_create(tui_widget **out_widget,
                                     const char *message,
                                     const char *const *labels, size_t count,

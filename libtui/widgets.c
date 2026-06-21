@@ -1,5 +1,6 @@
 #include "tui_internal.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -51,6 +52,62 @@ tui_status tui_menu_create(tui_widget **out_widget,
 {
     return create_menu(out_widget, TUI_WIDGET_MENU, NULL, labels, count,
                        on_activate, context);
+}
+
+tui_status tui_menu_enable_filter(
+    tui_widget *widget, const char *const *search_terms,
+    size_t searchable_count)
+{
+    char **terms = NULL;
+    size_t *visible_items = NULL;
+    char *query = NULL;
+    size_t index;
+
+    if (widget == NULL || widget->type != TUI_WIDGET_MENU ||
+        search_terms == NULL || searchable_count == 0 ||
+        searchable_count > widget->data.menu.count) {
+        return TUI_ERR_ARGUMENT;
+    }
+    if (widget->data.menu.filter.terms != NULL) {
+        return TUI_ERR_STATE;
+    }
+    if (widget->data.menu.count >
+        SIZE_MAX / sizeof(*visible_items)) {
+        return TUI_ERR_MEMORY;
+    }
+    terms = calloc(searchable_count, sizeof(*terms));
+    visible_items = malloc(widget->data.menu.count *
+                           sizeof(*visible_items));
+    query = calloc(32, 1);
+    if (terms == NULL || visible_items == NULL || query == NULL) {
+        free(terms);
+        free(visible_items);
+        free(query);
+        return TUI_ERR_MEMORY;
+    }
+    for (index = 0; index < searchable_count; index++) {
+        terms[index] = tui_strdup(search_terms[index]);
+        if (terms[index] == NULL) {
+            while (index > 0) {
+                free(terms[--index]);
+            }
+            free(terms);
+            free(visible_items);
+            free(query);
+            return TUI_ERR_MEMORY;
+        }
+    }
+    for (index = 0; index < widget->data.menu.count; index++) {
+        visible_items[index] = index;
+    }
+    widget->data.menu.filter.terms = terms;
+    widget->data.menu.filter.searchable_count = searchable_count;
+    widget->data.menu.filter.visible_items = visible_items;
+    widget->data.menu.filter.visible_count = widget->data.menu.count;
+    widget->data.menu.filter.match_count = searchable_count;
+    widget->data.menu.filter.query = query;
+    widget->data.menu.filter.capacity = 32;
+    return TUI_OK;
 }
 
 tui_status tui_action_dialog_create(tui_widget **out_widget,
@@ -159,8 +216,15 @@ void tui_widget_destroy(tui_widget *widget)
         for (index = 0; index < widget->data.menu.count; index++) {
             free(widget->data.menu.labels[index]);
         }
+        for (index = 0;
+             index < widget->data.menu.filter.searchable_count; index++) {
+            free(widget->data.menu.filter.terms[index]);
+        }
         free(widget->data.menu.labels);
         free(widget->data.menu.message);
+        free(widget->data.menu.filter.terms);
+        free(widget->data.menu.filter.visible_items);
+        free(widget->data.menu.filter.query);
         break;
     case TUI_WIDGET_TEXT_INPUT:
         free(widget->data.input.prompt);
@@ -202,24 +266,34 @@ tui_status tui_widget_set_text(tui_widget *widget, const char *text)
 
 size_t tui_menu_selected(const tui_widget *widget)
 {
+    size_t selected;
+
     if (widget == NULL ||
         (widget->type != TUI_WIDGET_MENU &&
          widget->type != TUI_WIDGET_ACTION_DIALOG)) {
         return 0;
     }
-    return widget->data.menu.selected;
+    selected = widget->data.menu.selected;
+    return tui_menu_visible_item(widget, selected);
 }
 
 tui_status tui_menu_set_selected(tui_widget *widget, size_t selected)
 {
+    size_t visible;
+
     if (widget == NULL ||
         (widget->type != TUI_WIDGET_MENU &&
          widget->type != TUI_WIDGET_ACTION_DIALOG) ||
         selected >= widget->data.menu.count) {
         return TUI_ERR_ARGUMENT;
     }
-    widget->data.menu.selected = selected;
-    return TUI_OK;
+    for (visible = 0; visible < tui_menu_visible_count(widget); visible++) {
+        if (tui_menu_visible_item(widget, visible) == selected) {
+            widget->data.menu.selected = visible;
+            return TUI_OK;
+        }
+    }
+    return TUI_ERR_ARGUMENT;
 }
 
 const char *tui_text_input_value(const tui_widget *widget)
@@ -278,6 +352,109 @@ static bool input_insert(tui_widget *widget, unsigned int character)
     return true;
 }
 
+size_t tui_menu_visible_count(const tui_widget *widget)
+{
+    if (widget == NULL ||
+        (widget->type != TUI_WIDGET_MENU &&
+         widget->type != TUI_WIDGET_ACTION_DIALOG)) {
+        return 0;
+    }
+    return widget->data.menu.filter.terms == NULL ?
+           widget->data.menu.count : widget->data.menu.filter.visible_count;
+}
+
+size_t tui_menu_visible_item(const tui_widget *widget, size_t visible)
+{
+    size_t count = tui_menu_visible_count(widget);
+
+    if (visible >= count) {
+        return 0;
+    }
+    return widget->data.menu.filter.terms == NULL ?
+           visible : widget->data.menu.filter.visible_items[visible];
+}
+
+static unsigned char ascii_lower(unsigned char character)
+{
+    if (character >= 'A' && character <= 'Z') {
+        return (unsigned char)(character + ('a' - 'A'));
+    }
+    return character;
+}
+
+static bool contains_case_insensitive(const char *value, const char *query)
+{
+    size_t value_index;
+    size_t query_index;
+
+    if (query[0] == '\0') {
+        return true;
+    }
+    for (value_index = 0; value[value_index] != '\0'; value_index++) {
+        for (query_index = 0;
+             query[query_index] != '\0' &&
+             value[value_index + query_index] != '\0' &&
+             ascii_lower((unsigned char)value[value_index + query_index]) ==
+                 ascii_lower((unsigned char)query[query_index]);
+             query_index++) {
+        }
+        if (query[query_index] == '\0') {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void menu_apply_filter(tui_widget *widget)
+{
+    size_t visible_count = 0;
+    size_t index;
+
+    for (index = 0;
+         index < widget->data.menu.filter.searchable_count; index++) {
+        if (contains_case_insensitive(widget->data.menu.filter.terms[index],
+                                      widget->data.menu.filter.query)) {
+            widget->data.menu.filter.visible_items[visible_count++] = index;
+        }
+    }
+    widget->data.menu.filter.match_count = visible_count;
+    for (index = widget->data.menu.filter.searchable_count;
+         index < widget->data.menu.count; index++) {
+        widget->data.menu.filter.visible_items[visible_count++] = index;
+    }
+    widget->data.menu.filter.visible_count = visible_count;
+    widget->data.menu.selected = 0;
+    widget->data.menu.scroll = 0;
+}
+
+static bool menu_filter_insert(tui_widget *widget, unsigned int character)
+{
+    char *filter;
+    size_t capacity;
+
+    if (character < 32 || character > 126) {
+        return false;
+    }
+    if (widget->data.menu.filter.length + 2 >
+        widget->data.menu.filter.capacity) {
+        if (widget->data.menu.filter.capacity > SIZE_MAX / 2) {
+            return true;
+        }
+        capacity = widget->data.menu.filter.capacity * 2;
+        filter = realloc(widget->data.menu.filter.query, capacity);
+        if (filter == NULL) {
+            return true;
+        }
+        widget->data.menu.filter.query = filter;
+        widget->data.menu.filter.capacity = capacity;
+    }
+    widget->data.menu.filter.query[widget->data.menu.filter.length++] =
+        (char)character;
+    widget->data.menu.filter.query[widget->data.menu.filter.length] = '\0';
+    menu_apply_filter(widget);
+    return true;
+}
+
 bool tui_widget_handle_event(tui_app *app, tui_widget *widget,
                              const tui_event *event)
 {
@@ -286,6 +463,28 @@ bool tui_widget_handle_event(tui_app *app, tui_widget *widget,
     }
     if (widget->type == TUI_WIDGET_MENU ||
         widget->type == TUI_WIDGET_ACTION_DIALOG) {
+        size_t visible_count = tui_menu_visible_count(widget);
+
+        if (widget->data.menu.filter.terms != NULL) {
+            if (event->type == TUI_EVENT_CHARACTER) {
+                return menu_filter_insert(widget, event->character);
+            }
+            if (event->type == TUI_EVENT_BACKSPACE) {
+                if (widget->data.menu.filter.length > 0) {
+                    widget->data.menu.filter.query[
+                        --widget->data.menu.filter.length] = '\0';
+                    menu_apply_filter(widget);
+                }
+                return true;
+            }
+            if (event->type == TUI_EVENT_ESCAPE &&
+                widget->data.menu.filter.length > 0) {
+                widget->data.menu.filter.query[0] = '\0';
+                widget->data.menu.filter.length = 0;
+                menu_apply_filter(widget);
+                return true;
+            }
+        }
         if (event->type == TUI_EVENT_UP) {
             if (widget->data.menu.selected > 0) {
                 widget->data.menu.selected--;
@@ -293,23 +492,28 @@ bool tui_widget_handle_event(tui_app *app, tui_widget *widget,
             return true;
         }
         if (event->type == TUI_EVENT_DOWN) {
-            if (widget->data.menu.selected + 1 < widget->data.menu.count) {
+            if (widget->data.menu.selected + 1 < visible_count) {
                 widget->data.menu.selected++;
             }
             return true;
         }
         if (event->type == TUI_EVENT_HOME) {
-            widget->data.menu.selected = 0;
+            if (visible_count > 0) {
+                widget->data.menu.selected = 0;
+            }
             return true;
         }
         if (event->type == TUI_EVENT_END) {
-            widget->data.menu.selected = widget->data.menu.count - 1;
+            if (visible_count > 0) {
+                widget->data.menu.selected = visible_count - 1;
+            }
             return true;
         }
         if (event->type == TUI_EVENT_ENTER) {
-            if (widget->data.menu.callback != NULL) {
+            if (visible_count > 0 &&
+                widget->data.menu.callback != NULL) {
                 widget->data.menu.callback(app, widget,
-                                           widget->data.menu.selected,
+                                           tui_menu_selected(widget),
                                            widget->data.menu.context);
             }
             return true;

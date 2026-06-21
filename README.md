@@ -93,9 +93,11 @@ Controls:
 
 - Up/Down: move selection
 - Enter: select or confirm
-- Escape: go back
+- Type in a worktree list: filter by branch or folder name
+- Backspace: edit an active worktree filter
+- Escape: clear an active filter, otherwise go back
 - `r`: refresh the repository list
-- `q`: quit from menu screens
+- `q`: quit from non-filtering menu screens
 
 Selecting a repository provides actions to open its primary branch, select an
 existing worktree, or create a worktree. The primary branch is resolved from
@@ -117,7 +119,7 @@ and provides:
 
 - Application lifecycle and terminal suspension
 - A screen stack
-- Menus and action dialogs
+- Menus with optional type-to-filter search, plus action dialogs
 - Text inputs and message dialogs
 - Status bars
 - Keyboard and resize events
@@ -130,6 +132,9 @@ Ownership rules:
 - `tui_screen_add_widget` takes ownership of a widget on success.
 - Menu labels, dialog text, prompts, and input values are copied by the
   library.
+- Menu filter terms are copied; trailing menu actions can remain visible
+  while searchable items are filtered.
+- Interactive text entry currently accepts printable ASCII characters only.
 - Widget callback contexts are borrowed and never freed by the library.
 - A screen context can optionally supply a destructor.
 
